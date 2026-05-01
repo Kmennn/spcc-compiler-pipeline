@@ -6,6 +6,10 @@
     <meta name="description" content="Compiler Execution Pipeline">
     <title>Compiler Execution Pipeline</title>
     <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Jost:wght@200;300;400;500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.css">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.css">
+    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/lib/codemirror.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/codemirror@5.65.16/addon/hint/show-hint.js"></script>
     <style>
         *{margin:0;padding:0;box-sizing:border-box}
         :root{
@@ -45,8 +49,22 @@
         main{position:relative;z-index:5;display:grid;grid-template-columns:2fr 3fr;min-height:calc(100vh - 130px)}
         .source-panel{position:sticky;top:0;height:calc(100vh - 130px);border-right:1px solid var(--border);display:flex;flex-direction:column;}
         .panel-label{font-family:var(--sans);font-size:0.7rem;font-weight:400;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-dim);padding:24px 32px 12px;}
-        #code{flex:1;width:100%;background:transparent;color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.85;font-weight:300;border:none;outline:none;resize:none;padding:0 32px 32px;}
-        #code::placeholder{color:var(--text-dim);font-weight:300}
+        #code{display:none;}
+        .CodeMirror {
+            flex:1; width:100%; height:auto; background:transparent; color:var(--text);
+            font-family:var(--mono); font-size:13px; line-height:1.85; font-weight:300;
+        }
+        .CodeMirror-scroll { padding-bottom: 32px; }
+        .CodeMirror-lines { padding-left: 10px; padding-right: 32px; }
+        .CodeMirror-gutters { background: transparent; border-right: none; }
+        .CodeMirror-linenumber { color: var(--text-dim); opacity: 0.5; padding-right: 12px; }
+        .CodeMirror-hints {
+            background: var(--bg); border: 1px solid rgba(58,74,22,0.15); border-radius: 6px;
+            font-family: var(--mono); font-size: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.05); padding: 4px 0;
+            z-index: 1000;
+        }
+        .CodeMirror-hint { color: var(--text-sec); padding: 4px 12px; }
+        .CodeMirror-hint-active { background: rgba(58,74,22,0.06); color: var(--text); }
 
         .pipeline{display:flex;flex-direction:column;overflow-y:auto;height:calc(100vh - 130px)}
         .pipeline:hover .stage{opacity:0.4;}
@@ -263,10 +281,116 @@ OUT X"></textarea>
         }
         function loadHistory(idx) {
             if (window.runHistoryData && window.runHistoryData[idx]) {
-                document.getElementById('code').value = window.runHistoryData[idx].inputCode;
+                if (window.editor) {
+                    window.editor.setValue(window.runHistoryData[idx].inputCode);
+                } else {
+                    document.getElementById('code').value = window.runHistoryData[idx].inputCode;
+                }
             }
         }
-        document.addEventListener('DOMContentLoaded', fetchHistory);
+        
+        // IntelliSense System
+        const KEYWORDS = ["VAR", "SET", "OUT", "#MACRO", "#MEND", "@CALL"];
+        const OPERATORS = ["+", "-", "*", "/", "="];
+
+        function extractVariables(code) {
+            const vars = new Set();
+            code.split("\n").forEach(line => {
+                if (line.trim().startsWith("VAR")) {
+                    const parts = line.trim().split(/\s+/);
+                    if (parts[1]) vars.add(parts[1]);
+                }
+            });
+            return [...vars];
+        }
+
+        function extractMacros(code) {
+            const macros = new Set();
+            code.split("\n").forEach(line => {
+                if (line.trim().startsWith("#MACRO")) {
+                    const parts = line.trim().split(/\s+/);
+                    if (parts[1]) macros.add(parts[1]);
+                }
+            });
+            return [...macros];
+        }
+
+        function getContext(line) {
+            if (line.startsWith("VAR")) return "VAR";
+            if (line.startsWith("SET")) return "SET";
+            if (line.startsWith("@CALL")) return "CALL";
+            if (line.startsWith("#MACRO")) return "MACRO";
+            return "GENERAL";
+        }
+
+        CodeMirror.registerHelper("hint", "custom", function(editor) {
+            const cursor = editor.getCursor();
+            const line = editor.getLine(cursor.line);
+            
+            // Extract the word we are typing (can start with @ or #)
+            const wordMatch = line.slice(0, cursor.ch).match(/[a-zA-Z0-9_#@]*$/);
+            const word = wordMatch ? wordMatch[0] : "";
+
+            const code = editor.getValue();
+            const variables = extractVariables(code);
+            const macros = extractMacros(code);
+            const context = getContext(line.trim());
+
+            let suggestions = [];
+
+            if (context === "VAR") {
+                suggestions = ["X", "Y", "Z", "A", "B", "TOTAL", "RES"];
+            } 
+            else if (context === "SET") {
+                suggestions = [...variables, ...OPERATORS];
+            } 
+            else if (context === "CALL") {
+                suggestions = macros.map(m => {
+                    for (let l of code.split("\n")) {
+                        if (l.trim().startsWith("#MACRO") && l.includes(m)) {
+                            const params = l.replace("#MACRO", "").replace(m, "").trim();
+                            return params ? `${m}(${params.replace(/&/g, '')})` : `${m}()`;
+                        }
+                    }
+                    return `${m}()`;
+                });
+            } 
+            else {
+                suggestions = [...KEYWORDS, ...variables];
+            }
+
+            suggestions = suggestions.filter(s =>
+                s.toLowerCase().startsWith(word.toLowerCase())
+            );
+
+            if (suggestions.length === 0) return null;
+
+            return {
+                list: suggestions,
+                from: CodeMirror.Pos(cursor.line, cursor.ch - word.length),
+                to: CodeMirror.Pos(cursor.line, cursor.ch)
+            };
+        });
+
+        document.addEventListener('DOMContentLoaded', () => {
+            fetchHistory();
+            
+            window.editor = CodeMirror.fromTextArea(document.getElementById("code"), {
+                lineNumbers: true,
+                mode: "text/plain",
+                theme: "default",
+                viewportMargin: Infinity,
+                extraKeys: {
+                    "Ctrl-Space": "autocomplete"
+                }
+            });
+
+            window.editor.on("inputRead", function(cm) {
+                if (!cm.state.completionActive) {
+                    CodeMirror.showHint(cm, CodeMirror.hint.custom);
+                }
+            });
+        });
 
         function setView(stage, type) {
             const container = document.getElementById(`${stage}-body`);
@@ -412,7 +536,7 @@ OUT X"></textarea>
             const btn=document.getElementById('runBtn');
             const bar=document.getElementById('statusBar');
             const dot=document.getElementById('statusDot');
-            const code=document.getElementById('code').value;
+            const code=window.editor ? window.editor.getValue() : document.getElementById('code').value;
             
             if(!code.trim()){bar.textContent='No input';bar.className='fail';return}
             btn.disabled=true; btn.textContent='Processing...';
