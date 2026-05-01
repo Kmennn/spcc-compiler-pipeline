@@ -1,0 +1,514 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Compiler Execution Pipeline">
+    <title>Compiler Execution Pipeline</title>
+    <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=Jost:wght@200;300;400;500&family=JetBrains+Mono:wght@300;400;500&display=swap" rel="stylesheet">
+    <style>
+        *{margin:0;padding:0;box-sizing:border-box}
+        :root{
+            --bg:#F0EFE9;--text:#3A4A16;--text-sec:#6B7A4A;--text-dim:#99A07E;
+            --border:rgba(58,74,22,0.08);--dark:#212E02;
+            --ok:#4A7A1E;--warn:#9A7B1A;--err:#9A2E1A;
+            --sans:'Jost',system-ui,sans-serif;--serif:'Instrument Serif',Georgia,serif;--mono:'JetBrains Mono',monospace;
+        }
+        html{background:var(--bg);overflow-x:hidden}
+        body{font-family:var(--sans);color:var(--text);font-weight:300;font-size:15px;line-height:1.5;-webkit-font-smoothing:antialiased;min-height:100vh}
+
+        body::before{
+            content:'';position:fixed;inset:0;pointer-events:none;z-index:0;
+            background-image:linear-gradient(to right,
+                transparent 50px,rgba(58,74,22,0.05) 50px,rgba(58,74,22,0.05) calc(50px + 1px),transparent calc(50px + 1px),
+                transparent calc(50px + (100vw - 100px)/5*1 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*1 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*1),transparent calc(50px + (100vw - 100px)/5*1),
+                transparent calc(50px + (100vw - 100px)/5*2 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*2 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*2),transparent calc(50px + (100vw - 100px)/5*2),
+                transparent calc(50px + (100vw - 100px)/5*3 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*3 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*3),transparent calc(50px + (100vw - 100px)/5*3),
+                transparent calc(50px + (100vw - 100px)/5*4 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*4 - 1px),rgba(58,74,22,0.05) calc(50px + (100vw - 100px)/5*4),transparent calc(50px + (100vw - 100px)/5*4),
+                transparent calc(100vw - 51px),rgba(58,74,22,0.05) calc(100vw - 51px),rgba(58,74,22,0.05) calc(100vw - 50px),transparent calc(100vw - 50px));
+        }
+
+        header{position:relative;z-index:10;padding:40px 50px 32px;display:flex;align-items:flex-end;justify-content:space-between;border-bottom:1px solid var(--border);}
+        .brand{display:flex;flex-direction:column;gap:4px}
+        .brand h1{font-family:var(--serif);font-size:clamp(1.6rem,2.5vw,2rem);font-weight:400;letter-spacing:-0.02em;line-height:1}
+        .brand p{font-size:0.85rem;font-weight:300;color:var(--text-sec);letter-spacing:0.02em}
+        .header-actions{display:flex;align-items:center;gap:20px}
+        .status-dot{width:8px;height:8px;border-radius:50%;background:var(--ok);transition:background 0.4s ease}
+        .pill{
+            padding:0.35rem 1.4rem;background:transparent;border:1px solid var(--text);color:var(--text);
+            border-radius:50px;font-family:var(--sans);font-size:0.85rem;font-weight:400;cursor:pointer;transition:all 0.3s ease;
+        }
+        .pill:hover:not(:disabled){background:var(--text);color:var(--bg)}
+        .pill:active:not(:disabled){transform:scale(0.97)}
+        .pill:disabled{opacity:0.3;cursor:not-allowed}
+
+        main{position:relative;z-index:5;display:grid;grid-template-columns:2fr 3fr;min-height:calc(100vh - 130px)}
+        .source-panel{position:sticky;top:0;height:calc(100vh - 130px);border-right:1px solid var(--border);display:flex;flex-direction:column;}
+        .panel-label{font-family:var(--sans);font-size:0.7rem;font-weight:400;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-dim);padding:24px 32px 12px;}
+        #code{flex:1;width:100%;background:transparent;color:var(--text);font-family:var(--mono);font-size:13px;line-height:1.85;font-weight:300;border:none;outline:none;resize:none;padding:0 32px 32px;}
+        #code::placeholder{color:var(--text-dim);font-weight:300}
+
+        .pipeline{display:flex;flex-direction:column;overflow-y:auto;height:calc(100vh - 130px)}
+        .pipeline:hover .stage{opacity:0.4;}
+        .pipeline .stage:hover{opacity:1;background:rgba(58,74,22,0.03);}
+
+        .stage{padding:32px 40px;border-bottom:1px solid var(--border);transition:all 0.4s ease;position:relative;opacity:0.9;}
+        .stage.hidden{opacity:0;transform:translateY(10px);pointer-events:none;}
+        .stage.fade-in{animation:fadeIn 0.5s ease forwards;}
+        @keyframes fadeIn{to{opacity:0.9;transform:translateY(0);}}
+
+        .stage-header{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px}
+        .stage-title{font-family:var(--sans);font-size:0.72rem;font-weight:400;text-transform:uppercase;letter-spacing:0.12em;color:var(--text-dim);}
+        .stage-badge{font-size:0.65rem;font-weight:400;padding:2px 10px;border-radius:50px;border:1px solid var(--border);color:var(--text-dim);letter-spacing:0.06em;display:flex;align-items:center;gap:6px;}
+        .stage-body{font-family:var(--mono);font-size:13px;line-height:1.85;color:var(--text);min-height:60px;}
+
+        .processing-indicator{display:inline-block;width:6px;height:6px;background:var(--warn);border-radius:50%;animation:pulse 1s infinite;}
+        @keyframes pulse{0%{opacity:0.4}50%{opacity:1}100%{opacity:0.4}}
+
+        .flow-arrow{display:flex;align-items:center;justify-content:center;padding:12px 40px;color:var(--text-dim);font-size:0.75rem;letter-spacing:0.08em;border-bottom:1px solid var(--border);opacity:0;transition:opacity 0.4s ease;}
+        .flow-arrow.visible{opacity:1;}
+        .flow-arrow svg{width:14px;height:14px;stroke:var(--text-dim);stroke-width:1.5;fill:none;}
+
+        .view-toggle{display:flex;gap:12px;margin-bottom:12px;}
+        .toggle-btn{background:none;border:none;font-family:var(--sans);font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);cursor:pointer;padding-bottom:2px;border-bottom:1px solid transparent;transition:all 0.2s ease;}
+        .toggle-btn.active{color:var(--text);border-bottom-color:var(--text);}
+        .toggle-btn:hover:not(.active){color:var(--text-sec);}
+
+        .code-line{padding:2px 0;display:flex;align-items:baseline;gap:16px;animation:typewriter 0.3s ease forwards;opacity:0;transform:translateX(-5px);}
+        @keyframes typewriter{to{opacity:1;transform:translateX(0);}}
+        .line-no{color:var(--text-dim);font-size:10px;min-width:20px;text-align:right;user-select:none;font-weight:300;opacity:0.6}
+        .line-text{flex:1}
+
+        .syn-kw{color:#5C4D2E} .syn-val{color:#6B5A22} .syn-var{color:var(--text)} .syn-op{color:var(--text-dim)} .syn-reg{color:#4A5C2E} .syn-arrow{color:var(--text-dim);font-weight:300} .syn-comment{color:var(--text-dim);font-style:italic;font-family:var(--sans);font-size:11.5px;margin-left:12px;font-weight:300}
+
+        .tip{position:relative;cursor:default;border-bottom:1px dotted rgba(58,74,22,0.25);transition:border-color 0.3s ease;}
+        .tip:hover{border-bottom-color:var(--text-sec);}
+        .tip:hover::after{
+            content:attr(data-info);position:absolute;bottom:calc(100% + 6px);left:0;
+            background:var(--bg);color:var(--text);padding:8px 14px;border-radius:6px;
+            font-size:11.5px;font-family:var(--sans);font-weight:300;
+            border:1px solid rgba(58,74,22,0.15);white-space:nowrap;z-index:100;pointer-events:none;
+            box-shadow:0 4px 12px rgba(0,0,0,0.03);
+        }
+
+        .tables-section{padding:32px 40px;border-bottom:1px solid var(--border);transition:background 0.4s ease;opacity:0.9;}
+        .tabs{display:flex;gap:0;margin-bottom:16px}
+        .tab{font-family:var(--sans);font-size:0.7rem;font-weight:400;text-transform:uppercase;letter-spacing:0.1em;color:var(--text-dim);cursor:pointer;padding:8px 16px 8px 0;border-bottom:1.5px solid transparent;transition:all 0.3s ease;}
+        .tab:hover{color:var(--text-sec)} .tab.active{color:var(--text);border-bottom-color:var(--text)}
+        .tab-content{display:none} .tab-content.active{display:block}
+        
+        .data-table{width:100%;border-collapse:collapse;font-size:12.5px}
+        .data-table th{text-align:left;color:var(--text-dim);font-family:var(--sans);font-weight:400;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.1em;padding:8px 10px;border-bottom:1px solid rgba(58,74,22,0.12);}
+        .data-table td{padding:7px 10px;border-bottom:1px solid var(--border);font-weight:400}
+
+        .diag-line{font-size:12.5px;padding:3px 0;font-family:var(--mono)}
+        .diag-line.err{color:var(--err)} .diag-line.warn{color:var(--warn)}
+
+        .empty{color:var(--text-dim);font-style:italic;font-size:13px;font-weight:300;font-family:var(--sans)}
+
+        footer{position:relative;z-index:10;padding:12px 50px;border-top:1px solid var(--border);font-size:0.78rem;font-weight:300;color:var(--text-dim);display:flex;align-items:center;gap:8px;}
+        footer.ok{color:var(--ok)} footer.warn{color:var(--warn)} footer.fail{color:var(--err)}
+
+        ::-webkit-scrollbar{width:3px} ::-webkit-scrollbar-track{background:transparent} ::-webkit-scrollbar-thumb{background:rgba(58,74,22,0.1);border-radius:3px}
+
+        .story-text{font-family:var(--sans);font-size:13.5px;color:var(--text);line-height:1.8;}
+        .story-var{font-family:var(--mono);color:var(--text);font-size:12px;background:rgba(58,74,22,0.05);padding:0 4px;border-radius:3px;cursor:pointer;transition:all 0.2s;}
+        .story-var:hover, .syn-var:hover, .syn-val:hover, .syn-reg:hover { background: rgba(58,74,22,0.1); }
+        .syn-var { cursor:pointer; }
+        .highlight-trace { background: rgba(58,74,22,0.2) !important; color: var(--text) !important; outline: 1px solid rgba(58,74,22,0.4); border-radius: 2px; }
+        
+        .run-history { padding: 24px 32px; border-top: 1px solid var(--border); background: rgba(58,74,22,0.02); flex-shrink:0;}
+        .history-label { font-family: var(--sans); font-size: 0.65rem; font-weight: 400; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 12px; }
+        .history-item { font-family: var(--mono); font-size: 11px; color: var(--text-sec); cursor: pointer; padding: 6px 8px; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom:4px;}
+        .history-item:hover { background: rgba(58,74,22,0.06); color: var(--text); }
+    </style>
+</head>
+<body>
+    <header>
+        <div class="brand">
+            <h1>Compiler Execution Pipeline</h1>
+            <p>Macro → IR → Assembly</p>
+        </div>
+        <div class="header-actions">
+            <div class="status-dot" id="statusDot"></div>
+            <button class="pill" id="runBtn" onclick="run()">Execute Pipeline</button>
+        </div>
+    </header>
+
+    <main>
+        <div class="source-panel">
+            <div class="panel-label">Source Code</div>
+            <textarea id="code" spellcheck="false" placeholder="Enter source code...
+
+#MACRO ADD &A, &B
+SET &A = &A + &B
+#MEND
+
+VAR X = 10
+VAR Y = 20
+VAR Z = 0
+@CALL ADD(X, Y)
+OUT X"></textarea>
+            <div class="run-history">
+                <div class="history-label">Previous Runs</div>
+                <div id="history-list">
+                    <span class="empty">No history</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="pipeline">
+            <div class="stage hidden" id="stage-exp">
+                <div class="stage-header">
+                    <span class="stage-title">01 — Macro Expansion</span>
+                    <span class="stage-badge" id="badge-exp">Waiting</span>
+                </div>
+                <div class="stage-body" id="expanded"><span class="empty">Awaiting execution…</span></div>
+            </div>
+
+            <div class="flow-arrow" id="arr-1"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
+
+            <div class="stage hidden" id="stage-ir">
+                <div class="stage-header">
+                    <span class="stage-title">02 — Intermediate Representation</span>
+                    <span class="stage-badge" id="badge-ir">Waiting</span>
+                </div>
+                <div class="view-toggle">
+                    <button class="toggle-btn active" onclick="setView('ir','code')">Code View</button>
+                    <button class="toggle-btn" onclick="setView('ir','story')">Explanation View</button>
+                </div>
+                <div class="stage-body" id="ir-body"><span class="empty">Awaiting execution…</span></div>
+            </div>
+
+            <div class="flow-arrow" id="arr-2"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
+
+            <div class="stage hidden" id="stage-asm">
+                <div class="stage-header">
+                    <span class="stage-title">03 — Assembly Output</span>
+                    <span class="stage-badge" id="badge-asm">Waiting</span>
+                </div>
+                <div class="view-toggle">
+                    <button class="toggle-btn active" onclick="setView('asm','code')">Code View</button>
+                    <button class="toggle-btn" onclick="setView('asm','story')">Explanation View</button>
+                </div>
+                <div class="stage-body" id="asm-body"><span class="empty">Awaiting execution…</span></div>
+            </div>
+
+            <div class="flow-arrow" id="arr-3"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
+
+            <div class="tables-section hidden stage" id="stage-tables">
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab(this,'sym')">Symbol Table</div>
+                    <div class="tab" onclick="switchTab(this,'mnt')">MNT</div>
+                    <div class="tab" onclick="switchTab(this,'mdt')">MDT</div>
+                </div>
+                <div class="tab-content active" id="sym"></div>
+                <div class="tab-content" id="mnt"></div>
+                <div class="tab-content" id="mdt"></div>
+            </div>
+
+            <div class="flow-arrow" id="arr-4"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
+
+            <div class="stage hidden" id="stage-diag">
+                <div class="stage-header">
+                    <span class="stage-title">Diagnostics</span>
+                    <span class="stage-badge">Log</span>
+                </div>
+                <div class="stage-body" id="errors"><span class="empty">No diagnostics</span></div>
+            </div>
+        </div>
+    </main>
+
+    <footer id="statusBar">Ready for execution.</footer>
+
+    <script>
+        const sleep = ms => new Promise(r => setTimeout(r, ms));
+
+        function switchTab(el,id){
+            el.parentElement.querySelectorAll('.tab').forEach(t=>t.classList.remove('active'));
+            el.classList.add('active');
+            const p=el.closest('.tables-section');
+            p.querySelectorAll('.tab-content').forEach(c=>c.classList.remove('active'));
+            p.querySelector('#'+id).classList.add('active');
+        }
+
+        // State for views
+        const state = { ir: { code: [], story: [] }, asm: { code: [], story: [] } };
+
+        document.addEventListener('click', e => {
+            if (e.target.classList.contains('story-var') || e.target.classList.contains('syn-var') || e.target.classList.contains('syn-reg') || e.target.classList.contains('syn-val')) {
+                const text = e.target.textContent;
+                document.querySelectorAll('.highlight-trace').forEach(el => el.classList.remove('highlight-trace'));
+                document.querySelectorAll('.story-var, .syn-var, .syn-val, .syn-reg').forEach(el => {
+                    if (el.textContent === text) el.classList.add('highlight-trace');
+                });
+            } else {
+                document.querySelectorAll('.highlight-trace').forEach(el => el.classList.remove('highlight-trace'));
+            }
+        });
+
+        async function fetchHistory() {
+            try {
+                const res = await fetch('/api/v1/pipeline/history');
+                const runs = await res.json();
+                const hl = document.getElementById('history-list');
+                if (runs && runs.length > 0) {
+                    window.runHistoryData = runs;
+                    hl.innerHTML = runs.map((r, i) => {
+                        const firstLine = r.inputCode.split('\n').find(l => l.trim().length > 0) || 'Empty';
+                        return `<div class="history-item" onclick="loadHistory(${i})">${i+1}. ${esc(firstLine.substring(0, 30))}...</div>`;
+                    }).join('');
+                }
+            } catch(e) {}
+        }
+        function loadHistory(idx) {
+            if (window.runHistoryData && window.runHistoryData[idx]) {
+                document.getElementById('code').value = window.runHistoryData[idx].inputCode;
+            }
+        }
+        document.addEventListener('DOMContentLoaded', fetchHistory);
+
+        function setView(stage, type) {
+            const container = document.getElementById(`${stage}-body`);
+            const btnContainer = container.previousElementSibling;
+            btnContainer.querySelectorAll('.toggle-btn').forEach(b => b.classList.remove('active'));
+            btnContainer.querySelector(`[onclick="setView('${stage}','${type}')"]`).classList.add('active');
+            
+            container.innerHTML = state[stage][type].map((html, i) => 
+                `<div class="code-line" style="animation-delay: ${i*0.05}s"><span class="line-no">${i+1}</span><span class="line-text">${html}</span></div>`
+            ).join('');
+        }
+
+        function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
+
+        // Smart Contextual Explanation
+        function getSmartExplanation(line, mode) {
+            const t = line.trim();
+            if (mode === 'asm') {
+                if(t.startsWith('LDI')) {
+                    const match = t.match(/LDI\s+(R\d+),\s*(\d+)/);
+                    return match ? `Loads constant value ${match[2]} into register ${match[1]}` : 'Loads immediate constant';
+                }
+                if(t.startsWith('LDR')) {
+                    const match = t.match(/LDR\s+(R\d+),\s*(\w+)/);
+                    return match ? `Loads value of '${match[2]}' from memory into register ${match[1]}` : 'Loads from memory';
+                }
+                if(t.startsWith('STR')) {
+                    const match = t.match(/STR\s+(\w+),\s*(R\d+)/);
+                    return match ? `Stores value from register ${match[2]} into variable '${match[1]}'` : 'Stores to memory';
+                }
+                if(t.startsWith('ADD')) return `Adds values in registers`;
+                if(t.startsWith('SUB')) return `Subtracts values in registers`;
+                if(t.startsWith('PRN')) {
+                    const match = t.match(/PRN\s+(\w+)/);
+                    return match ? `Prints value of variable '${match[1]}' to standard output` : 'Prints variable';
+                }
+                if(t.startsWith('HLT')) return `Terminates execution`;
+            } else if (mode === 'ir') {
+                if(/^t\d+\s*=/.test(t)) return `Creates temporary variable to store intermediate result`;
+                if(t.startsWith('OUT ')) return `Output instruction for variable`;
+                if(/=.*[+\-*/]/.test(t)) return `Evaluates expression`;
+                if(/^[A-Za-z_]\w*\s*=\s*\d+$/.test(t)) return `Initializes variable with constant`;
+                if(/^[A-Za-z_]\w*\s*=\s*t\d+$/.test(t)) return `Assigns computed result to target variable`;
+            }
+            return null;
+        }
+
+        // Story Mode Translators
+        function translateIRToStory(line) {
+            const t = line.trim();
+            let match;
+            if((match = t.match(/^(\w+)\s*=\s*(\d+)$/))) return `Initialize <span class="story-var">${match[1]}</span> with value <span class="story-var">${match[2]}</span>`;
+            if((match = t.match(/^(t\d+)\s*=\s*(\w+)\s*([+\-*/])\s*(\w+)$/))) {
+                const op = match[3] === '+' ? 'adding' : match[3] === '-' ? 'subtracting' : match[3] === '*' ? 'multiplying' : 'dividing';
+                return `Compute intermediate result by ${op} <span class="story-var">${match[2]}</span> and <span class="story-var">${match[4]}</span>, store in <span class="story-var">${match[1]}</span>`;
+            }
+            if((match = t.match(/^(\w+)\s*=\s*(t\d+)$/))) return `Assign result from <span class="story-var">${match[2]}</span> to variable <span class="story-var">${match[1]}</span>`;
+            if((match = t.match(/^OUT\s+(\w+)$/))) return `Prepare to output variable <span class="story-var">${match[1]}</span>`;
+            return `<span class="story-text">${t}</span>`;
+        }
+
+        function translateAsmToStory(line) {
+            const t = line.trim();
+            let match;
+            if((match = t.match(/^LDI\s+(R\d+),\s*(\d+)$/))) return `Load constant <span class="story-var">${match[2]}</span> into <span class="story-var">${match[1]}</span>`;
+            if((match = t.match(/^LDR\s+(R\d+),\s*(\w+)$/))) return `Read <span class="story-var">${match[2]}</span> from memory into <span class="story-var">${match[1]}</span>`;
+            if((match = t.match(/^STR\s+(\w+),\s*(R\d+)$/))) return `Write <span class="story-var">${match[2]}</span> back to memory as <span class="story-var">${match[1]}</span>`;
+            if((match = t.match(/^ADD\s+(R\d+),\s*(R\d+)$/))) return `Add <span class="story-var">${match[2]}</span> to <span class="story-var">${match[1]}</span>`;
+            if((match = t.match(/^PRN\s+(\w+)$/))) return `Print variable <span class="story-var">${match[1]}</span> to output`;
+            if(t === 'HLT') return `Halt execution smoothly`;
+            return `<span class="story-text">${t}</span>`;
+        }
+
+        function tokenize(line, mode){
+            const tokens = line.match(/[A-Za-z_]\w*|\d+|[+\-*/=]|,|\s+|./g)||[];
+            const asmKw=['LDR','LDI','STR','ADD','SUB','MUL','DIV','PRN','HLT'];
+            const expKw=['VAR','SET','OUT'];
+            return tokens.map(t=>{
+                const e=esc(t);
+                if(/^\s+$/.test(t)) return e;
+                if(mode==='ir'){
+                    if(/^t\d+$/.test(t)) return `<span class="syn-var">${e}</span>`;
+                    if(t==='OUT') return `<span class="syn-kw">${e}</span>`;
+                    if(/^\d+$/.test(t)) return `<span class="syn-val">${e}</span>`;
+                    if(/^[+\-*/=]$/.test(t)) {
+                        if (t==='=') return `<span class="syn-arrow">←</span>`;
+                        return `<span class="syn-op">${e}</span>`;
+                    }
+                    if(/^[A-Za-z_]\w*$/.test(t)) return `<span class="syn-var">${e}</span>`;
+                }else if(mode==='asm'){
+                    if(asmKw.includes(t)) return `<span class="syn-kw">${e}</span>`;
+                    if(/^R\d+$/.test(t)) return `<span class="syn-reg">${e}</span>`;
+                    if(/^\d+$/.test(t)) return `<span class="syn-val">${e}</span>`;
+                }else if(mode==='exp'){
+                    if(expKw.includes(t)) return `<span class="syn-kw">${e}</span>`;
+                    if(/^\d+$/.test(t)) return `<span class="syn-val">${e}</span>`;
+                    if(/^[+\-*/=]$/.test(t)) return `<span class="syn-op">${e}</span>`;
+                }
+                return e;
+            }).join('');
+        }
+
+        function prepareLines(lines, mode) {
+            return lines.map((raw) => {
+                const tip = getSmartExplanation(raw, mode);
+                const hl = tokenize(raw, mode);
+                const ta = tip ? ` class="tip" data-info="${tip}"` : '';
+                return `<span${ta}>${hl}</span>`;
+            });
+        }
+
+        function prepareStory(lines, mode) {
+            return lines.map(raw => mode === 'ir' ? translateIRToStory(raw) : translateAsmToStory(raw));
+        }
+
+        async function processStage(stageId, badgeId, arrowId, data, renderFn) {
+            const stage = document.getElementById(stageId);
+            const badge = document.getElementById(badgeId);
+            const arrow = document.getElementById(arrowId);
+            
+            stage.classList.remove('hidden');
+            stage.classList.add('fade-in');
+            stage.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+            
+            if(badge) {
+                badge.innerHTML = '<span class="processing-indicator"></span> Processing...';
+                await sleep(600); // Simulate processing delay
+                badge.innerHTML = '✔ Completed';
+                badge.style.color = 'var(--ok)';
+                badge.style.borderColor = 'var(--ok)';
+            }
+            
+            renderFn();
+            
+            if(arrow) {
+                await sleep(300);
+                arrow.classList.add('visible');
+            }
+            await sleep(400); // Pause before next stage
+        }
+
+        async function run(){
+            const btn=document.getElementById('runBtn');
+            const bar=document.getElementById('statusBar');
+            const dot=document.getElementById('statusDot');
+            const code=document.getElementById('code').value;
+            
+            if(!code.trim()){bar.textContent='No input';bar.className='fail';return}
+            btn.disabled=true; btn.textContent='Processing...';
+            bar.textContent='Pipeline started...'; bar.className=''; dot.style.background='var(--warn)';
+
+            // Reset stages
+            ['stage-exp','stage-ir','stage-asm','stage-tables','stage-diag'].forEach(id=>{
+                const el = document.getElementById(id);
+                el.classList.remove('fade-in'); el.classList.add('hidden');
+            });
+            ['arr-1','arr-2','arr-3','arr-4'].forEach(id=>document.getElementById(id).classList.remove('visible'));
+            ['badge-exp','badge-ir','badge-asm'].forEach(id=>{
+                const b=document.getElementById(id);
+                b.innerHTML='Waiting'; b.style='';
+            });
+
+            try{
+                const res=await fetch('/api/v1/pipeline/process',{
+                    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})
+                });
+                const data=await res.json();
+
+                // Stage 1: Exp
+                bar.innerHTML = '● Executing: Macro Expansion';
+                await processStage('stage-exp', 'badge-exp', 'arr-1', data, () => {
+                    const el = document.getElementById('expanded');
+                    if(data.expandedCode) {
+                        const lines = data.expandedCode.split('\n').filter(l=>l.trim());
+                        el.innerHTML = lines.map((l,i) => `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
+                    } else el.innerHTML = '<span class="empty">No output</span>';
+                });
+
+                // Stage 2: IR
+                bar.innerHTML = '● Executing: IR Generation';
+                await processStage('stage-ir', 'badge-ir', 'arr-2', data, () => {
+                    if(data.irCode && data.irCode.length > 0) {
+                        state.ir.code = prepareLines(data.irCode, 'ir');
+                        state.ir.story = prepareStory(data.irCode, 'ir');
+                        setView('ir', 'code');
+                    } else document.getElementById('ir-body').innerHTML = '<span class="empty">No IR</span>';
+                });
+
+                // Stage 3: ASM
+                bar.innerHTML = '● Executing: Assembly Translation';
+                await processStage('stage-asm', 'badge-asm', 'arr-3', data, () => {
+                    if(data.assemblyCode && data.assemblyCode.length > 0) {
+                        state.asm.code = prepareLines(data.assemblyCode, 'asm');
+                        state.asm.story = prepareStory(data.assemblyCode, 'asm');
+                        setView('asm', 'code');
+                    } else document.getElementById('asm-body').innerHTML = '<span class="empty">No ASM</span>';
+                });
+
+                // Stage 4: Tables
+                bar.innerHTML = '● Executing: Table Generation';
+                await processStage('stage-tables', null, 'arr-4', data, () => {
+                    const sym=document.getElementById('sym');
+                    if(data.symbolTable&&Object.keys(data.symbolTable).length>0){
+                        sym.innerHTML='<table class="data-table"><thead><tr><th>Variable</th><th>Value</th><th>Type</th></tr></thead><tbody>'+
+                            Object.entries(data.symbolTable).map(([k,v],i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td>${k}</td><td>${v===null?'<span style="color:var(--text-dim)">runtime</span>':'<span class="syn-val">'+v+'</span>'}</td><td style="color:var(--text-dim)">${v===null?'Computed':'Constant'}</td></tr>`).join('')+'</tbody></table>';
+                    }else sym.innerHTML='<span class="empty">No symbols</span>';
+                    
+                    const mnt=document.getElementById('mnt');
+                    if(data.mnt&&Object.keys(data.mnt).length>0){
+                        mnt.innerHTML='<table class="data-table"><thead><tr><th>Macro</th><th>Start</th><th>End</th><th>Params</th></tr></thead><tbody>'+
+                            Object.entries(data.mnt).map(([n,d],i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.start}</td><td>${d.end}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';
+                    }else mnt.innerHTML='<span class="empty">No macros</span>';
+                    
+                    const mdt=document.getElementById('mdt');
+                    if(data.mdt&&data.mdt.length>0){
+                        mdt.innerHTML=data.mdt.map((l,i)=>`<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
+                    }else mdt.innerHTML='<span class="empty">Empty</span>';
+                });
+
+                // Stage 5: Diagnostics
+                bar.innerHTML = '● Executing: Diagnostics';
+                await processStage('stage-diag', null, null, data, () => {
+                    const el=document.getElementById('errors');
+                    if(data.errors&&data.errors.length>0){
+                        el.innerHTML=data.errors.map((e,i)=>`<div class="diag-line ${e.type==='WARNING'?'warn':'err'}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s">Line ${e.line} · ${e.type} — ${e.message}</div>`).join('');
+                    }else el.innerHTML='<span style="color:var(--ok);animation:fadeIn 0.5s ease forwards;opacity:0">Clean — no errors</span>';
+                });
+
+                // Final Status Update
+                fetchHistory(); // refresh history
+                const hard=data.errors?data.errors.filter(e=>e.type!=='WARNING').length:0;
+                const warns=data.errors?data.errors.filter(e=>e.type==='WARNING').length:0;
+                if(hard>0){bar.textContent=`Pipeline halted with ${hard} error(s)`;bar.className='fail';dot.style.background='var(--err)'}
+                else if(warns>0){bar.textContent=`✔ Completed with ${warns} warning(s)`;bar.className='warn';dot.style.background='var(--warn)'}
+                else{bar.textContent='✔ Completed. All stages green.';bar.className='ok';dot.style.background='var(--ok)'}
+
+            }catch(e){
+                bar.textContent='System Error: '+e.message;bar.className='fail';dot.style.background='var(--err)'
+            }finally{
+                btn.disabled=false;btn.textContent='Execute Pipeline';
+            }
+        }
+    </script>
+</body>
+</html>
