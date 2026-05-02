@@ -71,6 +71,42 @@ public class PipelineService {
         response.setAssemblyCode(assemblyCode);
         response.setErrors(errors);
 
+        // === Build Execution Timeline ===
+        List<String> timeline = new ArrayList<>();
+        
+        for (Map.Entry<String, Integer> entry : symbolTable.entrySet()) {
+            if (entry.getValue() != null) {
+                timeline.add("Initialize " + entry.getKey() + " → " + entry.getValue());
+            }
+        }
+        
+        if (expandedCode != null) {
+            for (String line : expandedCode.split("\n")) {
+                if (line.trim().startsWith("SET")) {
+                    timeline.add("Expanded macro → " + line.trim());
+                }
+            }
+        }
+        
+        if (irCode != null) {
+            for (String line : irCode) {
+                if (line.contains("=")) {
+                    timeline.add("IR step → " + line.trim());
+                }
+            }
+        }
+        
+        if (assemblyCode != null) {
+            for (String line : assemblyCode) {
+                if (line.startsWith("ADD") || line.startsWith("SUB") || line.startsWith("MUL")) {
+                    timeline.add("Execute instruction → " + line.trim());
+                }
+            }
+        }
+        
+        timeline.add("Program completed → Output generated");
+        response.setExecutionTimeline(timeline);
+
         // Persist run to database
         saveRun(code, response, errors);
 

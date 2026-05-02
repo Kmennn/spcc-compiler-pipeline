@@ -258,6 +258,16 @@ OUT X"></textarea>
 
             <div class="flow-arrow" id="arr-4"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
 
+            <div class="stage hidden" id="stage-timeline">
+                <div class="stage-header">
+                    <span class="stage-title">04 — Execution Timeline</span>
+                    <span class="stage-badge" id="badge-timeline">Waiting</span>
+                </div>
+                <div class="stage-body" id="timeline-body"><span class="empty">Awaiting execution…</span></div>
+            </div>
+
+            <div class="flow-arrow" id="arr-5"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
+
             <div class="stage hidden" id="stage-diag">
                 <div class="stage-header">
                     <span class="stage-title">Diagnostics</span>
@@ -587,12 +597,12 @@ OUT X"></textarea>
             bar.textContent='Pipeline started...'; bar.className=''; dot.style.background='var(--warn)';
 
             // Reset stages
-            ['stage-exp','stage-ir','stage-asm','stage-tables','stage-diag'].forEach(id=>{
+            ['stage-exp','stage-ir','stage-asm','stage-tables','stage-timeline','stage-diag'].forEach(id=>{
                 const el = document.getElementById(id);
                 el.classList.remove('fade-in'); el.classList.add('hidden');
             });
-            ['arr-1','arr-2','arr-3','arr-4'].forEach(id=>document.getElementById(id).classList.remove('visible'));
-            ['badge-exp','badge-ir','badge-asm'].forEach(id=>{
+            ['arr-1','arr-2','arr-3','arr-4','arr-5'].forEach(id=>document.getElementById(id).classList.remove('visible'));
+            ['badge-exp','badge-ir','badge-asm','badge-timeline'].forEach(id=>{
                 const b=document.getElementById(id);
                 b.innerHTML='Waiting'; b.style='';
             });
@@ -656,6 +666,23 @@ OUT X"></textarea>
                     if(data.mdt&&data.mdt.length>0){
                         mdt.innerHTML=data.mdt.map((l,i)=>`<div class="code-line tip" data-info="Stored macro instruction template" style="animation-delay:${i*0.05}s"><span class="line-no">${i}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
                     }else mdt.innerHTML='<span class="empty">Empty</span>';
+                });
+
+                // Stage 4.5: Timeline
+                bar.innerHTML = '● Executing: Building Timeline';
+                await processStage('stage-timeline', 'badge-timeline', 'arr-5', data, () => {
+                    const el = document.getElementById('timeline-body');
+                    if(data.executionTimeline && data.executionTimeline.length > 0) {
+                        el.innerHTML = data.executionTimeline.map((l, i) => {
+                            let formatted = esc(l)
+                                .replace(/(→)/g, '<span class="syn-arrow">$1</span>')
+                                .replace(/\b([A-Z_][A-Z0-9_]*)\b/g, '<span class="syn-var">$1</span>')
+                                .replace(/\b(\d+)\b/g, '<span class="syn-val">$1</span>');
+                            return `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="story-text">${formatted}</span></div>`;
+                        }).join('');
+                    } else {
+                        el.innerHTML = '<span class="empty">No timeline generated</span>';
+                    }
                 });
 
                 // Stage 5: Diagnostics

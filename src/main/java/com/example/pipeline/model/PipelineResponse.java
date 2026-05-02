@@ -19,8 +19,13 @@ public class PipelineResponse {
     private Map<String, Integer> symbolTable = new HashMap<>();
 
     private List<Error> errors = new ArrayList<>();
+    
+    private List<String> executionTimeline = new ArrayList<>();
 
     // Getters
+    public List<String> getExecutionTimeline() {
+        return executionTimeline;
+    }
     public String getOriginalCode() {
         return originalCode;
     }
@@ -84,5 +89,9 @@ public class PipelineResponse {
 
     public void setErrors(List<Error> errors) {
         this.errors = errors;
+    }
+
+    public void setExecutionTimeline(List<String> executionTimeline) {
+        this.executionTimeline = executionTimeline;
     }
 }
