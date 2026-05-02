@@ -170,6 +170,24 @@
         .history-label { font-family: var(--sans); font-size: 0.65rem; font-weight: 400; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 12px; }
         .history-item { font-family: var(--mono); font-size: 11px; color: var(--text-sec); cursor: pointer; padding: 6px 8px; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom:4px;}
         .history-item:hover { background: rgba(58,74,22,0.06); color: var(--text); }
+        
+        @media (max-width: 1024px) {
+            main { grid-template-columns: 1fr 1.2fr; }
+            .CodeMirror { margin: 0 16px 16px; width: calc(100% - 32px); }
+            .stage, .tables-section { padding: 24px 24px; }
+        }
+        @media (max-width: 768px) {
+            main { grid-template-columns: 1fr; display: flex; flex-direction: column; }
+            .source-panel { height: 45vh; min-height: 350px; border-right: none; border-bottom: 1px solid var(--border); position: relative; }
+            .pipeline { height: auto; overflow: visible; }
+            header { flex-direction: column; align-items: flex-start; padding: 24px 24px 20px; gap: 16px; }
+            .header-actions { width: 100%; justify-content: space-between; }
+            footer { padding: 16px 24px; }
+            .stage, .tables-section { padding: 24px 16px; }
+            .panel-label { padding: 16px 16px 8px; }
+            .run-history { padding: 16px 16px; }
+            .CodeMirror-lines { padding-left: 0; }
+        }
     </style>
 </head>
 <body>
