@@ -488,7 +488,7 @@ OUT X"></textarea>
             const phases = [
                 { title: "Macroprocessor", desc: "Expands macros into pure source code" },
                 { title: "Compiler", desc: "Validates syntax and semantics" },
-                { title: "Optimizer", desc: "Applies constant folding and loop unrolling" },
+                { title: "Optimizer", desc: "Applies constant folding" },
                 { title: "Intermediate Rep", desc: "Generates Three-Address Code (3AC)" },
                 { title: "Assembler", desc: "Translates IR into target machine code" }
             ];
@@ -739,8 +739,8 @@ OUT X"></textarea>
                     
                     const mnt=document.getElementById('mnt');
                     if(data.mnt&&Object.keys(data.mnt).length>0){
-                        mnt.innerHTML='<table class="data-table"><thead><tr><th>Macro</th><th>Start</th><th>End</th><th>Params</th></tr></thead><tbody>'+
-                            Object.entries(data.mnt).map(([n,d],i)=>`<tr class="tip" data-info="Defines macro signature from lines ${d.start} to ${d.end}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.start}</td><td>${d.end}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';
+                        mnt.innerHTML='<table class="data-table"><thead><tr><th>Macro Name</th><th># Args</th><th>MDT Index</th><th>Parameters</th></tr></thead><tbody>'+
+                            Object.entries(data.mnt).map(([n,d],i)=>`<tr class="tip" data-info="Macro \'${n}\' starts at MDT line ${d.start}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.formalParams.length}</td><td>${d.start}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';
                     }else mnt.innerHTML='<span class="empty">No macros</span>';
                     
                     const mdt=document.getElementById('mdt');

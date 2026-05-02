@@ -71,40 +71,49 @@ public class PipelineService {
         response.setAssemblyCode(assemblyCode);
         response.setErrors(errors);
 
-        // === Build Execution Timeline ===
+        // === Build Execution Timeline (Value Evolution) ===
         List<String> timeline = new ArrayList<>();
+        Map<String, Integer> currentValues = new HashMap<>();
         
-        for (Map.Entry<String, Integer> entry : symbolTable.entrySet()) {
-            if (entry.getValue() != null) {
-                timeline.add("Initialize " + entry.getKey() + " → " + entry.getValue());
-            }
-        }
-        
-        if (expandedCode != null) {
-            for (String line : expandedCode.split("\n")) {
-                if (line.trim().startsWith("SET")) {
-                    timeline.add("Expanded macro → " + line.trim());
-                }
-            }
-        }
+        timeline.add("System state: READY");
         
         if (irCode != null) {
             for (String line : irCode) {
-                if (line.contains("=")) {
-                    timeline.add("IR step → " + line.trim());
+                String l = line.trim();
+                if (l.contains("=")) {
+                    String[] parts = l.split("=");
+                    String target = parts[0].trim();
+                    String expr = parts[1].trim();
+                    
+                    if (expr.matches("-?\\d+")) {
+                        int val = Integer.parseInt(expr);
+                        currentValues.put(target, val);
+                        timeline.add(target + " initialized → " + val);
+                    } else if (target.startsWith("t")) {
+                        timeline.add("IR step → Compute " + expr);
+                    } else if (currentValues.containsKey(target)) {
+                        // If it's a target variable (not a temp), show update
+                        // We can't easily compute the value here for complex expressions 
+                        // but we can look at the symbol table's final value if it's a constant
+                        Integer finalVal = symbolTable.get(target);
+                        if (finalVal != null) {
+                            timeline.add(target + " updated → " + finalVal);
+                        } else {
+                            timeline.add(target + " updated → [runtime]");
+                        }
+                    }
+                } else if (l.startsWith("OUT")) {
+                    String var = l.replace("OUT", "").trim();
+                    timeline.add("Final output → " + var + " is " + (symbolTable.get(var) != null ? symbolTable.get(var) : "[runtime]"));
                 }
             }
         }
         
-        if (assemblyCode != null) {
-            for (String line : assemblyCode) {
-                if (line.startsWith("ADD") || line.startsWith("SUB") || line.startsWith("MUL")) {
-                    timeline.add("Execute instruction → " + line.trim());
-                }
-            }
+        if (timeline.size() <= 1) {
+            timeline.add("No execution steps recorded.");
         }
         
-        timeline.add("Program completed → Output generated");
+        timeline.add("Program completed successfully");
         response.setExecutionTimeline(timeline);
 
         // Persist run to database
