@@ -221,6 +221,30 @@
             .tabs { flex-wrap: wrap; }
             .tab { padding: 8px 12px 8px 0; font-size: 0.65rem; }
         }
+
+        /* Mobile Execute Button */
+        .mobile-actions {
+            display: none;
+            padding: 16px 32px;
+            background: rgba(58,74,22,0.02);
+            border-bottom: 1px solid var(--border);
+        }
+        .mobile-actions .pill {
+            width: 100%;
+            height: 48px;
+            font-size: 1rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: var(--text);
+            color: var(--bg);
+            box-shadow: 0 4px 15px rgba(58,74,22,0.15);
+        }
+
+        @media (max-width: 768px) {
+            .mobile-actions { display: block; }
+            .header-actions #runBtn { display: none; }
+        }
     </style>
 </head>
 <body>
@@ -254,6 +278,9 @@ VAR Y = 20
 VAR Z = 0
 @CALL ADD(X, Y)
 OUT X"></textarea>
+            <div class="mobile-actions">
+                <button class="pill" id="mobileRunBtn" onclick="run()">Execute Pipeline</button>
+            </div>
             <div class="run-history">
                 <div class="history-label">Previous Runs</div>
                 <div id="history-list">
@@ -660,13 +687,20 @@ OUT X"></textarea>
         }
 
         async function run(){
-            const btn=document.getElementById('runBtn');
+            const btn = document.getElementById('runBtn');
+            const mobileBtn = document.getElementById('mobileRunBtn');
             const bar=document.getElementById('statusBar');
             const dot=document.getElementById('statusDot');
             const code=window.editor ? window.editor.getValue() : document.getElementById('code').value;
             
             if(!code.trim()){bar.textContent='No input';bar.className='fail';return}
-            btn.disabled=true; btn.textContent='Processing...';
+            
+            const setBtnState = (disabled, text) => {
+                btn.disabled = disabled; btn.textContent = text;
+                if(mobileBtn) { mobileBtn.disabled = disabled; mobileBtn.textContent = text; }
+            };
+
+            setBtnState(true, 'Processing...');
             bar.textContent='Pipeline started...'; bar.className=''; dot.style.background='var(--warn)';
 
             // Reset stages
@@ -796,7 +830,7 @@ OUT X"></textarea>
             }catch(e){
                 bar.textContent='System Error: '+e.message;bar.className='fail';dot.style.background='var(--err)'
             }finally{
-                btn.disabled=false;btn.textContent='Execute Pipeline';
+                setBtnState(false, 'Execute Pipeline');
             }
         }
     </script>

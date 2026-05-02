@@ -88,23 +88,21 @@ public class PipelineService {
                     if (expr.matches("-?\\d+")) {
                         int val = Integer.parseInt(expr);
                         currentValues.put(target, val);
-                        timeline.add(target + " initialized → " + val);
+                        timeline.add(target + " set to " + val);
                     } else if (target.startsWith("t")) {
-                        timeline.add("IR step → Compute " + expr);
-                    } else if (currentValues.containsKey(target)) {
-                        // If it's a target variable (not a temp), show update
-                        // We can't easily compute the value here for complex expressions 
-                        // but we can look at the symbol table's final value if it's a constant
+                        timeline.add("Computing: " + expr);
+                    } else if (currentValues.containsKey(target) || symbolTable.containsKey(target)) {
                         Integer finalVal = symbolTable.get(target);
                         if (finalVal != null) {
                             timeline.add(target + " updated → " + finalVal);
                         } else {
-                            timeline.add(target + " updated → [runtime]");
+                            timeline.add(target + " updated");
                         }
                     }
                 } else if (l.startsWith("OUT")) {
                     String var = l.replace("OUT", "").trim();
-                    timeline.add("Final output → " + var + " is " + (symbolTable.get(var) != null ? symbolTable.get(var) : "[runtime]"));
+                    Integer val = symbolTable.get(var);
+                    timeline.add("Output: " + var + (val != null ? " is " + val : ""));
                 }
             }
         }
