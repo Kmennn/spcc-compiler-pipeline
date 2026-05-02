@@ -171,10 +171,34 @@
         .history-item { font-family: var(--mono); font-size: 11px; color: var(--text-sec); cursor: pointer; padding: 6px 8px; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom:4px;}
         .history-item:hover { background: rgba(58,74,22,0.06); color: var(--text); }
         
+        .run-history { padding: 24px 32px; border-top: 1px solid var(--border); background: rgba(58,74,22,0.02); flex-shrink:0;}
+        .history-label { font-family: var(--sans); font-size: 0.65rem; font-weight: 400; text-transform: uppercase; letter-spacing: 0.1em; color: var(--text-dim); margin-bottom: 12px; }
+        .history-item { font-family: var(--mono); font-size: 11px; color: var(--text-sec); cursor: pointer; padding: 6px 8px; border-radius: 4px; transition: background 0.2s; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; margin-bottom:4px;}
+        .history-item:hover { background: rgba(58,74,22,0.06); color: var(--text); }
+        
+        .cm-error-line { background: rgba(154, 46, 26, 0.08) !important; }
+        .cm-warning-line { background: rgba(154, 123, 26, 0.08) !important; }
+
+        .phases-grid { display: grid; grid-template-columns: repeat(5, 1fr); gap: 16px; }
+        .phase-card { background: rgba(255,255,255,0.45); border: 1px solid rgba(58,74,22,0.1); border-radius: 8px; padding: 16px; box-shadow: inset 0 2px 10px rgba(58,74,22,0.02), 0 4px 20px rgba(58,74,22,0.03); transition: all 0.3s ease; display: flex; flex-direction: column; gap: 8px; }
+        .phase-card:hover { border-color: rgba(58,74,22,0.25); transform: translateY(-2px); }
+        .phase-card-title { font-family: var(--sans); font-size: 0.75rem; font-weight: 500; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text); }
+        .phase-card-desc { font-family: var(--sans); font-size: 0.85rem; color: var(--text-sec); line-height: 1.4; }
+        #theory-section { padding: 32px 50px 0; position: relative; z-index: 5; }
+
+        @media (max-width: 1440px) {
+            header { padding: 32px 40px 24px; }
+            footer { padding: 12px 40px; }
+            #theory-section { padding: 24px 40px 0; }
+        }
         @media (max-width: 1024px) {
             main { grid-template-columns: 1fr 1.2fr; }
             .CodeMirror { margin: 0 16px 16px; width: calc(100% - 32px); }
             .stage, .tables-section { padding: 24px 24px; }
+            .phases-grid { grid-template-columns: repeat(3, 1fr); gap: 12px; }
+            #theory-section { padding: 24px 32px 0; }
+            header { padding: 24px 32px 20px; }
+            footer { padding: 12px 32px; }
         }
         @media (max-width: 768px) {
             main { grid-template-columns: 1fr; display: flex; flex-direction: column; }
@@ -187,6 +211,15 @@
             .panel-label { padding: 16px 16px 8px; }
             .run-history { padding: 16px 16px; }
             .CodeMirror-lines { padding-left: 0; }
+            .phases-grid { grid-template-columns: 1fr; }
+            #theory-section { padding: 20px 24px 0; }
+        }
+        @media (max-width: 480px) {
+            header .brand h1 { font-size: 1.6rem; }
+            .header-actions { flex-direction: column; align-items: flex-start; gap: 12px; }
+            .pill { width: 100%; text-align: center; }
+            .tabs { flex-wrap: wrap; }
+            .tab { padding: 8px 12px 8px 0; font-size: 0.65rem; }
         }
     </style>
 </head>
@@ -201,6 +234,11 @@
             <button class="pill" id="runBtn" onclick="run()">Execute Pipeline</button>
         </div>
     </header>
+
+    <div class="section" id="theory-section">
+        <div class="panel-label" style="padding: 0 0 16px 0;">Pipeline Phases</div>
+        <div id="phases-panel" class="phases-grid"></div>
+    </div>
 
     <main>
         <div class="source-panel">
@@ -446,7 +484,24 @@ OUT X"></textarea>
             };
         });
 
+        function renderPhases() {
+            const phases = [
+                { title: "Macroprocessor", desc: "Expands macros into pure source code" },
+                { title: "Compiler", desc: "Validates syntax and semantics" },
+                { title: "Optimizer", desc: "Applies constant folding and loop unrolling" },
+                { title: "Intermediate Rep", desc: "Generates Three-Address Code (3AC)" },
+                { title: "Assembler", desc: "Translates IR into target machine code" }
+            ];
+            document.getElementById("phases-panel").innerHTML = phases.map((p, i) => `
+                <div class="phase-card" style="animation: fadeIn 0.4s ease forwards; opacity: 0; animation-delay: ${i * 0.1}s">
+                    <div class="phase-card-title">0${i + 1} — ${p.title}</div>
+                    <div class="phase-card-desc">${p.desc}</div>
+                </div>
+            `).join('');
+        }
+
         document.addEventListener('DOMContentLoaded', () => {
+            renderPhases();
             fetchHistory();
             
             window.editor = CodeMirror.fromTextArea(document.getElementById("code"), {
@@ -625,6 +680,14 @@ OUT X"></textarea>
                 b.innerHTML='Waiting'; b.style='';
             });
 
+            // Clear code editor error highlights
+            if (window.editor) {
+                for (let i = 0; i < window.editor.lineCount(); i++) {
+                    window.editor.removeLineClass(i, "background", "cm-error-line");
+                    window.editor.removeLineClass(i, "background", "cm-warning-line");
+                }
+            }
+
             try{
                 const res=await fetch('/api/v1/pipeline/process',{
                     method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})
@@ -709,6 +772,16 @@ OUT X"></textarea>
                     const el=document.getElementById('errors');
                     if(data.errors&&data.errors.length>0){
                         el.innerHTML=data.errors.map((e,i)=>`<div class="diag-line ${e.type==='WARNING'?'warn':'err'}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s">Line ${e.line} · ${e.type} — ${e.message}</div>`).join('');
+                        
+                        // Add highlights to editor
+                        if (window.editor) {
+                            data.errors.forEach(e => {
+                                if (e.line && e.line > 0) {
+                                    const className = e.type === 'WARNING' ? 'cm-warning-line' : 'cm-error-line';
+                                    window.editor.addLineClass(e.line - 1, "background", className);
+                                }
+                            });
+                        }
                     }else el.innerHTML='<span style="color:var(--ok);animation:fadeIn 0.5s ease forwards;opacity:0">Clean — no errors</span>';
                 });
 
