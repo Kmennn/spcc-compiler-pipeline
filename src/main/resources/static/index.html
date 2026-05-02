@@ -452,35 +452,31 @@ OUT X"></textarea>
 
         function esc(s){return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')}
 
-        // Smart Contextual Explanation
         function getSmartExplanation(line, mode) {
             const t = line.trim();
+            let match;
             if (mode === 'asm') {
-                if(t.startsWith('LDI')) {
-                    const match = t.match(/LDI\s+(R\d+),\s*(\d+)/);
-                    return match ? `Loads constant value ${match[2]} into register ${match[1]}` : 'Loads immediate constant';
-                }
-                if(t.startsWith('LDR')) {
-                    const match = t.match(/LDR\s+(R\d+),\s*(\w+)/);
-                    return match ? `Loads value of '${match[2]}' from memory into register ${match[1]}` : 'Loads from memory';
-                }
-                if(t.startsWith('STR')) {
-                    const match = t.match(/STR\s+(\w+),\s*(R\d+)/);
-                    return match ? `Stores value from register ${match[2]} into variable '${match[1]}'` : 'Stores to memory';
-                }
-                if(t.startsWith('ADD')) return `Adds values in registers`;
-                if(t.startsWith('SUB')) return `Subtracts values in registers`;
-                if(t.startsWith('PRN')) {
-                    const match = t.match(/PRN\s+(\w+)/);
-                    return match ? `Prints value of variable '${match[1]}' to standard output` : 'Prints variable';
-                }
-                if(t.startsWith('HLT')) return `Terminates execution`;
+                if((match = t.match(/^LDI\s+(R\d+),\s*(\d+)$/))) return `Loads immediate constant '${match[2]}' into register ${match[1]}`;
+                if((match = t.match(/^LDR\s+(R\d+),\s*(\w+)$/))) return `Reads variable '${match[2]}' from memory into register ${match[1]}`;
+                if((match = t.match(/^STR\s+(\w+),\s*(R\d+)$/))) return `Writes contents of register ${match[2]} to variable '${match[1]}' in memory`;
+                if((match = t.match(/^ADD\s+(R\d+),\s*(R\d+)$/))) return `Adds value in ${match[2]} to ${match[1]}`;
+                if((match = t.match(/^SUB\s+(R\d+),\s*(R\d+)$/))) return `Subtracts value in ${match[2]} from ${match[1]}`;
+                if((match = t.match(/^MUL\s+(R\d+),\s*(R\d+)$/))) return `Multiplies value in ${match[1]} by ${match[2]}`;
+                if((match = t.match(/^DIV\s+(R\d+),\s*(R\d+)$/))) return `Divides value in ${match[1]} by ${match[2]}`;
+                if((match = t.match(/^PRN\s+(\w+)$/))) return `Prints value of variable '${match[1]}' to hardware output`;
+                if(t === 'HLT') return `Halts CPU execution smoothly`;
             } else if (mode === 'ir') {
-                if(/^t\d+\s*=/.test(t)) return `Creates temporary variable to store intermediate result`;
-                if(t.startsWith('OUT ')) return `Output instruction for variable`;
-                if(/=.*[+\-*/]/.test(t)) return `Evaluates expression`;
-                if(/^[A-Za-z_]\w*\s*=\s*\d+$/.test(t)) return `Initializes variable with constant`;
-                if(/^[A-Za-z_]\w*\s*=\s*t\d+$/.test(t)) return `Assigns computed result to target variable`;
+                if((match = t.match(/^(\w+)\s*=\s*(\d+)$/))) return `Initializes target variable '${match[1]}' with constant '${match[2]}'`;
+                if((match = t.match(/^(t\d+)\s*=\s*(\w+)\s*([+\-*/])\s*(\w+)$/))) {
+                    const op = match[3] === '+' ? 'adding' : match[3] === '-' ? 'subtracting' : match[3] === '*' ? 'multiplying' : 'dividing';
+                    return `Computes by ${op} '${match[2]}' and '${match[4]}', storing in temporary '${match[1]}'`;
+                }
+                if((match = t.match(/^(\w+)\s*=\s*(t\d+)$/))) return `Assigns computed temporary '${match[2]}' to target variable '${match[1]}'`;
+                if((match = t.match(/^OUT\s+(\w+)$/))) return `Prepares variable '${match[1]}' for final output`;
+            } else if (mode === 'exp') {
+                if((match = t.match(/^VAR\s+(\w+)\s*=\s*(\d+)$/))) return `Allocates variable '${match[1]}' with initial value '${match[2]}'`;
+                if((match = t.match(/^SET\s+(\w+)\s*=\s*(.+)$/))) return `Updates variable '${match[1]}' to evaluate '${match[2]}'`;
+                if((match = t.match(/^OUT\s+(\w+)$/))) return `Requests output of variable '${match[1]}' to console`;
             }
             return null;
         }
@@ -544,7 +540,8 @@ OUT X"></textarea>
             return lines.map((raw) => {
                 const tip = getSmartExplanation(raw, mode);
                 const hl = tokenize(raw, mode);
-                const ta = tip ? ` class="tip" data-info="${tip}"` : '';
+                const escTip = tip ? tip.replace(/"/g, '&quot;') : '';
+                const ta = tip ? ` class="tip" data-info="${escTip}"` : '';
                 return `<span${ta}>${hl}</span>`;
             });
         }
@@ -612,7 +609,8 @@ OUT X"></textarea>
                     const el = document.getElementById('expanded');
                     if(data.expandedCode) {
                         const lines = data.expandedCode.split('\n').filter(l=>l.trim());
-                        el.innerHTML = lines.map((l,i) => `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
+                        const hlLines = prepareLines(lines, 'exp');
+                        el.innerHTML = hlLines.map((l,i) => `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="line-text">${l}</span></div>`).join('');
                     } else el.innerHTML = '<span class="empty">No output</span>';
                 });
 
@@ -642,18 +640,21 @@ OUT X"></textarea>
                     const sym=document.getElementById('sym');
                     if(data.symbolTable&&Object.keys(data.symbolTable).length>0){
                         sym.innerHTML='<table class="data-table"><thead><tr><th>Variable</th><th>Value</th><th>Type</th></tr></thead><tbody>'+
-                            Object.entries(data.symbolTable).map(([k,v],i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td>${k}</td><td>${v===null?'<span style="color:var(--text-dim)">runtime</span>':'<span class="syn-val">'+v+'</span>'}</td><td style="color:var(--text-dim)">${v===null?'Computed':'Constant'}</td></tr>`).join('')+'</tbody></table>';
+                            Object.entries(data.symbolTable).map(([k,v],i)=>{
+                                const tip = v === null ? `Computed dynamically during execution` : `Stored statically as constant ${v} before execution`;
+                                return `<tr class="tip" data-info="${tip}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td>${k}</td><td>${v===null?'<span style="color:var(--text-dim)">runtime</span>':'<span class="syn-val">'+v+'</span>'}</td><td style="color:var(--text-dim)">${v===null?'Computed':'Constant'}</td></tr>`;
+                            }).join('')+'</tbody></table>';
                     }else sym.innerHTML='<span class="empty">No symbols</span>';
                     
                     const mnt=document.getElementById('mnt');
                     if(data.mnt&&Object.keys(data.mnt).length>0){
                         mnt.innerHTML='<table class="data-table"><thead><tr><th>Macro</th><th>Start</th><th>End</th><th>Params</th></tr></thead><tbody>'+
-                            Object.entries(data.mnt).map(([n,d],i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.start}</td><td>${d.end}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';
+                            Object.entries(data.mnt).map(([n,d],i)=>`<tr class="tip" data-info="Defines macro signature from lines ${d.start} to ${d.end}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.start}</td><td>${d.end}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';
                     }else mnt.innerHTML='<span class="empty">No macros</span>';
                     
                     const mdt=document.getElementById('mdt');
                     if(data.mdt&&data.mdt.length>0){
-                        mdt.innerHTML=data.mdt.map((l,i)=>`<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
+                        mdt.innerHTML=data.mdt.map((l,i)=>`<div class="code-line tip" data-info="Stored macro instruction template" style="animation-delay:${i*0.05}s"><span class="line-no">${i}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
                     }else mdt.innerHTML='<span class="empty">Empty</span>';
                 });
 
