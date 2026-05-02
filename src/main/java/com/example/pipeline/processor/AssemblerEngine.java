@@ -150,11 +150,24 @@ public class AssemblerEngine {
             String label = null;
             String instruction = rawLine;
 
-            // --- Extract label (format: "LABEL: instruction") ---
-            if (rawLine.contains(":")) {
+            // --- Extract label ---
+            // Format 1: "LABEL: instruction" (colon-separated)
+            if (rawLine.contains(":") && !rawLine.contains("='")) {
                 int colonIdx = rawLine.indexOf(':');
                 label = rawLine.substring(0, colonIdx).trim();
                 instruction = rawLine.substring(colonIdx + 1).trim();
+            }
+            // Format 2: "LABEL MNEMONIC OPERANDS" (Dhamdhere — no colon, first token is label)
+            else {
+                String[] parts = rawLine.split("\\s+");
+                if (parts.length >= 2) {
+                    String firstToken = parts[0].toUpperCase();
+                    // If first token is NOT a known keyword, it's a label
+                    if (!isKnownMnemonic(firstToken)) {
+                        label = parts[0];
+                        instruction = rawLine.substring(rawLine.indexOf(parts[1]));
+                    }
+                }
             }
 
             // Register label in SYMTAB with current LC
@@ -185,8 +198,7 @@ public class AssemblerEngine {
             // ============ CASE: END ============
             else if (mnemonic.equals("END")) {
                 // Process remaining unassigned literals (like LTORG at end)
-                processLiterals(result, LC);
-                LC = updateLCAfterLiterals(result, LC);
+                LC = processLiterals(result, LC);
                 result.intermediateCode.add(new ICLine(-1, "(AD,02)"));
                 result.timeline.add("END directive processed, remaining literals assigned");
             }
@@ -194,7 +206,7 @@ public class AssemblerEngine {
             else if (mnemonic.equals("ORIGIN")) {
                 if (tokens.length >= 2) {
                     String expr = joinFrom(tokens, 1);
-                    int newLC = evaluateExpression(expr, result.symtab, errors, lineNo);
+                    int newLC = evaluateExpression(expr, result.symtab, errors, lineNo, LC);
                     if (newLC >= 0) {
                         result.intermediateCode.add(new ICLine(-1, "(AD,03) (C," + newLC + ")"));
                         result.timeline.add("ORIGIN: LC changed from " + LC + " → " + newLC);
@@ -206,23 +218,24 @@ public class AssemblerEngine {
             }
             // ============ CASE: EQU ============
             else if (mnemonic.equals("EQU")) {
-                if (label != null && tokens.length >= 2) {
+                if (tokens.length >= 2) {
                     String expr = joinFrom(tokens, 1);
-                    int val = evaluateExpression(expr, result.symtab, errors, lineNo);
+                    int val = evaluateExpression(expr, result.symtab, errors, lineNo, LC);
                     if (val >= 0) {
-                        addOrUpdateSymbol(result.symtab, label, val);
-                        result.intermediateCode.add(new ICLine(-1, "(AD,04) (S," + getSymbolIndex(result.symtab, label) + ")"));
-                        result.timeline.add("EQU: '" + label + "' equated to " + val);
+                        if (label != null) {
+                            addOrUpdateSymbol(result.symtab, label, val);
+                        }
+                        result.intermediateCode.add(new ICLine(-1, "(AD,04) (C," + val + ")"));
+                        result.timeline.add("EQU: equated to " + val);
                     }
                 } else {
-                    errors.add(new Error(lineNo, "EQU requires a label and expression", "ASSEMBLER_ERROR"));
+                    errors.add(new Error(lineNo, "EQU requires an expression", "ASSEMBLER_ERROR"));
                 }
             }
             // ============ CASE: LTORG ============
             else if (mnemonic.equals("LTORG")) {
                 int beforeLC = LC;
-                processLiterals(result, LC);
-                LC = updateLCAfterLiterals(result, LC);
+                LC = processLiterals(result, LC);
                 result.intermediateCode.add(new ICLine(-1, "(AD,05)"));
                 result.timeline.add("LTORG processed, literals assigned addresses " + beforeLC + "-" + (LC - 1));
             }
@@ -300,10 +313,10 @@ public class AssemblerEngine {
                         errors.add(new Error(lineNo, mnemonic + " requires an operand", "ASSEMBLER_ERROR"));
                     }
                 } else {
-                    // Standard format: MNEMONIC REG, OPERAND
+                    // Standard format: MNEMONIC REG, OPERAND (operand can be symbol, literal, or register)
                     if (tokens.length >= 3) {
                         String regStr = tokens[1].replace(",", "").toUpperCase();
-                        String operand = tokens[2].replace(",", "").trim();
+                        String operand = tokens[2].replace(",", "").trim().toUpperCase();
 
                         if (REG.containsKey(regStr)) {
                             ic.append(" (RG,").append(REG.get(regStr)).append(")");
@@ -312,7 +325,12 @@ public class AssemblerEngine {
                             continue;
                         }
 
-                        ic.append(" ").append(resolveOperand(operand, result, errors, lineNo));
+                        // Check if second operand is also a register
+                        if (REG.containsKey(operand)) {
+                            ic.append(" (RG,").append(REG.get(operand)).append(")");
+                        } else {
+                            ic.append(" ").append(resolveOperand(tokens[2].replace(",", "").trim(), result, errors, lineNo));
+                        }
 
                         result.intermediateCode.add(new ICLine(LC, ic.toString()));
                         result.timeline.add(LC + ": " + mnemonic + " " + regStr + ", " + operand);
@@ -359,84 +377,66 @@ public class AssemblerEngine {
             StringBuilder mc = new StringBuilder();
             mc.append(String.format("%03d", icLine.lc)).append(" ");
 
+            String opcode = "00";
+            String reg = "00";
+            String addr = "000";
+            boolean isDL = false;
+            int dlType = 0;
+
             // Parse IC tokens: (TYPE,VALUE)
             Pattern pattern = Pattern.compile("\\(([A-Z]{2}),(\\d+)\\)");
             Matcher matcher = pattern.matcher(ic);
-
-            List<String> resolved = new ArrayList<>();
-            String statementType = null;
 
             while (matcher.find()) {
                 String type = matcher.group(1);
                 int value = Integer.parseInt(matcher.group(2));
 
-                if (statementType == null) {
-                    statementType = type;
-                }
-
                 switch (type) {
                     case "IS":
-                        resolved.add(String.format("%02d", value));
+                        opcode = String.format("%02d", value);
                         break;
                     case "DL":
-                        // DS → generate empty word(s), DC → generate constant
-                        if (value == 1) {
-                            // DS - reserve space (output 00 00 000)
-                            resolved.add("00");
-                            resolved.add("00");
-                            resolved.add("000");
-                        } else if (value == 2) {
-                            // DC - output constant
-                            resolved.add("00");
-                            resolved.add("00");
-                            // The constant value is in the (C,x) token — will be resolved below
-                        }
+                        isDL = true;
+                        dlType = value;
                         break;
                     case "RG":
-                        resolved.add(String.format("%02d", value));
-                        break;
                     case "CC":
-                        resolved.add(String.format("%02d", value));
+                        reg = String.format("%02d", value);
                         break;
                     case "S":
                         // Resolve from SYMTAB
                         if (value >= 0 && value < result.symtab.size()) {
-                            resolved.add(String.format("%03d", result.symtab.get(value).address));
+                            addr = String.format("%03d", result.symtab.get(value).address);
                         } else {
                             errors.add(new Error(0, "Invalid SYMTAB index: " + value, "ASSEMBLER_ERROR"));
-                            resolved.add("???");
+                            addr = "???";
                         }
                         break;
                     case "L":
                         // Resolve from LITTAB
                         if (value >= 0 && value < result.littab.size()) {
-                            resolved.add(String.format("%03d", result.littab.get(value).address));
+                            addr = String.format("%03d", result.littab.get(value).address);
                         } else {
                             errors.add(new Error(0, "Invalid LITTAB index: " + value, "ASSEMBLER_ERROR"));
-                            resolved.add("???");
+                            addr = "???";
                         }
                         break;
                     case "C":
                         // Constant
-                        if ("DL".equals(statementType)) {
-                            // For DL statements, the constant is the value stored
-                            resolved.add(String.format("%03d", value));
-                        } else {
-                            resolved.add(String.format("%03d", value));
-                        }
+                        addr = String.format("%03d", value);
                         break;
-                    default:
-                        resolved.add(String.format("%02d", value));
                 }
             }
 
             // Build machine code line
-            if ("DL".equals(statementType)) {
-                // For DS: just output LC + 00 00 size
-                // For DC: output LC + 00 00 constant
-                mc.append(String.join(" ", resolved));
+            if (isDL) {
+                if (dlType == 1) { // DS
+                    mc.append("00 00 000");
+                } else if (dlType == 2) { // DC
+                    mc.append("00 00 ").append(addr);
+                }
             } else {
-                mc.append(String.join(" ", resolved));
+                mc.append(opcode).append(" ").append(reg).append(" ").append(addr);
             }
 
             result.machineCode.add(mc.toString());
@@ -496,10 +496,12 @@ public class AssemblerEngine {
 
     /**
      * Process unassigned literals — assign LC addresses.
+     * Returns the updated LC after all literals have been placed.
      */
-    private void processLiterals(AssemblerResult result, int startLC) {
+    private int processLiterals(AssemblerResult result, int startLC) {
         int lc = startLC;
         int poolStart = result.pooltab.get(result.pooltab.size() - 1);
+        boolean assigned = false;
 
         for (int i = poolStart; i < result.littab.size(); i++) {
             Literal lit = result.littab.get(i);
@@ -507,30 +509,26 @@ public class AssemblerEngine {
                 lit.address = lc;
                 result.timeline.add("Literal '=" + lit.value + "' assigned address " + lc);
                 lc++;
+                assigned = true;
             }
         }
 
-        // Add new pool entry (for next batch of literals)
-        if (result.littab.size() > poolStart) {
+        // Add new pool entry only if literals were actually assigned
+        if (assigned) {
             result.pooltab.add(result.littab.size());
         }
+
+        return lc;
     }
 
     /**
-     * Returns the LC value after all pending literals have been assigned.
+     * Check if a token is a known assembler mnemonic/directive/keyword.
      */
-    private int updateLCAfterLiterals(AssemblerResult result, int startLC) {
-        int lc = startLC;
-        int poolStart = result.pooltab.size() >= 2
-                ? result.pooltab.get(result.pooltab.size() - 2)
-                : result.pooltab.get(result.pooltab.size() - 1);
-        
-        for (int i = poolStart; i < result.littab.size(); i++) {
-            if (result.littab.get(i).address >= 0) {
-                lc = Math.max(lc, result.littab.get(i).address + 1);
-            }
-        }
-        return lc;
+    private boolean isKnownMnemonic(String token) {
+        return MOT.containsKey(token) || token.equals("START") || token.equals("END")
+                || token.equals("ORIGIN") || token.equals("EQU") || token.equals("LTORG")
+                || token.equals("DS") || token.equals("DC") || token.equals("MACRO")
+                || token.equals("MEND") || token.equals("ENDM");
     }
 
     /**
@@ -571,10 +569,15 @@ public class AssemblerEngine {
     }
 
     /**
-     * Evaluate an expression like "L1 + 3" or "200".
+     * Evaluate an expression like "L1 + 3", "* + 5", or "200".
      */
-    private int evaluateExpression(String expr, List<Symbol> symtab, List<Error> errors, int lineNo) {
+    private int evaluateExpression(String expr, List<Symbol> symtab, List<Error> errors, int lineNo, int currentLC) {
         expr = expr.trim();
+
+        // Single asterisk (current LC)
+        if (expr.equals("*")) {
+            return currentLC;
+        }
 
         // Simple constant
         if (expr.matches("-?\\d+")) {
@@ -582,30 +585,44 @@ public class AssemblerEngine {
         }
 
         // Expression with + or -
-        Pattern p = Pattern.compile("([A-Za-z_][A-Za-z0-9_]*)\\s*([+-])\\s*(\\d+)");
+        Pattern p = Pattern.compile("([A-Za-z0-9_*]+)\\s*([+-])\\s*([A-Za-z0-9_*]+)");
         Matcher m = p.matcher(expr);
         if (m.matches()) {
-            String symName = m.group(1);
+            String op1 = m.group(1);
             String op = m.group(2);
-            int offset = Integer.parseInt(m.group(3));
+            String op2 = m.group(3);
 
-            int idx = getSymbolIndex(symtab, symName);
-            if (idx >= 0 && symtab.get(idx).address >= 0) {
-                int base = symtab.get(idx).address;
-                return op.equals("+") ? base + offset : base - offset;
+            int val1 = evaluateOperand(op1, symtab, currentLC);
+            int val2 = evaluateOperand(op2, symtab, currentLC);
+
+            if (val1 >= 0 && val2 >= 0) {
+                return op.equals("+") ? val1 + val2 : val1 - val2;
             } else {
-                errors.add(new Error(lineNo, "Undefined symbol in expression: " + symName, "ASSEMBLER_ERROR"));
+                errors.add(new Error(lineNo, "Undefined symbol in expression: " + expr, "ASSEMBLER_ERROR"));
                 return -1;
             }
         }
 
         // Simple symbol reference
-        int idx = getSymbolIndex(symtab, expr);
-        if (idx >= 0 && symtab.get(idx).address >= 0) {
-            return symtab.get(idx).address;
+        int val = evaluateOperand(expr, symtab, currentLC);
+        if (val >= 0) {
+            return val;
         }
 
         errors.add(new Error(lineNo, "Cannot evaluate expression: " + expr, "ASSEMBLER_ERROR"));
+        return -1;
+    }
+
+    /**
+     * Helper to evaluate a single operand in an expression.
+     */
+    private int evaluateOperand(String op, List<Symbol> symtab, int currentLC) {
+        if (op.equals("*")) return currentLC;
+        if (op.matches("\\d+")) return Integer.parseInt(op);
+        int idx = getSymbolIndex(symtab, op);
+        if (idx >= 0 && symtab.get(idx).address >= 0) {
+            return symtab.get(idx).address;
+        }
         return -1;
     }
 
