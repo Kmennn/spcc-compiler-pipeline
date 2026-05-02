@@ -328,6 +328,7 @@ OUT X"></textarea>
 
             <div class="flow-arrow" id="arr-3"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
 
+            <!-- COMPILER MODE TABLES -->
             <div class="tables-section hidden stage" id="stage-tables">
                 <div class="tabs">
                     <div class="tab active" onclick="switchTab(this,'sym')">Symbol Table</div>
@@ -339,11 +340,34 @@ OUT X"></textarea>
                 <div class="tab-content" id="mdt"></div>
             </div>
 
+            <!-- ASSEMBLER MODE TABLES -->
+            <div class="tables-section hidden stage" id="stage-asm-tables">
+                <div class="tabs">
+                    <div class="tab active" onclick="switchTab(this,'asm-sym')">SYMTAB</div>
+                    <div class="tab" onclick="switchTab(this,'asm-lit')">LITTAB</div>
+                    <div class="tab" onclick="switchTab(this,'asm-pool')">POOLTAB</div>
+                </div>
+                <div class="tab-content active" id="asm-sym"></div>
+                <div class="tab-content" id="asm-lit"></div>
+                <div class="tab-content" id="asm-pool"></div>
+            </div>
+
             <div class="flow-arrow" id="arr-4"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
+
+            <!-- ASSEMBLER: MACHINE CODE STAGE -->
+            <div class="stage hidden" id="stage-mc">
+                <div class="stage-header">
+                    <span class="stage-title">04 — Machine Code (Pass-2)</span>
+                    <span class="stage-badge" id="badge-mc">Waiting</span>
+                </div>
+                <div class="stage-body" id="mc-body"><span class="empty">Awaiting execution…</span></div>
+            </div>
+
+            <div class="flow-arrow" id="arr-mc"><svg viewBox="0 0 24 24"><line x1="12" y1="4" x2="12" y2="20"/><polyline points="6 14 12 20 18 14"/></svg></div>
 
             <div class="stage hidden" id="stage-timeline">
                 <div class="stage-header">
-                    <span class="stage-title">04 — Execution Timeline</span>
+                    <span class="stage-title" id="timeline-title">04 — Execution Timeline</span>
                     <span class="stage-badge" id="badge-timeline">Waiting</span>
                 </div>
                 <div class="stage-body" id="timeline-body"><span class="empty">Awaiting execution…</span></div>
@@ -692,146 +716,133 @@ OUT X"></textarea>
             const bar=document.getElementById('statusBar');
             const dot=document.getElementById('statusDot');
             const code=window.editor ? window.editor.getValue() : document.getElementById('code').value;
-            
             if(!code.trim()){bar.textContent='No input';bar.className='fail';return}
-            
             const setBtnState = (disabled, text) => {
                 btn.disabled = disabled; btn.textContent = text;
                 if(mobileBtn) { mobileBtn.disabled = disabled; mobileBtn.textContent = text; }
             };
-
             setBtnState(true, 'Processing...');
             bar.textContent='Pipeline started...'; bar.className=''; dot.style.background='var(--warn)';
-
-            // Reset stages
-            ['stage-exp','stage-ir','stage-asm','stage-tables','stage-timeline','stage-diag'].forEach(id=>{
-                const el = document.getElementById(id);
-                el.classList.remove('fade-in'); el.classList.add('hidden');
+            ['stage-exp','stage-ir','stage-asm','stage-tables','stage-asm-tables','stage-mc','stage-timeline','stage-diag'].forEach(id=>{
+                const el = document.getElementById(id); if(el){el.classList.remove('fade-in'); el.classList.add('hidden');}
             });
-            ['arr-1','arr-2','arr-3','arr-4','arr-5'].forEach(id=>document.getElementById(id).classList.remove('visible'));
-            ['badge-exp','badge-ir','badge-asm','badge-timeline'].forEach(id=>{
-                const b=document.getElementById(id);
-                b.innerHTML='Waiting'; b.style='';
-            });
-
-            // Clear code editor error highlights
-            if (window.editor) {
-                for (let i = 0; i < window.editor.lineCount(); i++) {
-                    window.editor.removeLineClass(i, "background", "cm-error-line");
-                    window.editor.removeLineClass(i, "background", "cm-warning-line");
-                }
-            }
-
+            ['arr-1','arr-2','arr-3','arr-4','arr-mc','arr-5'].forEach(id=>{const el=document.getElementById(id);if(el)el.classList.remove('visible');});
+            ['badge-exp','badge-ir','badge-asm','badge-mc','badge-timeline'].forEach(id=>{const b=document.getElementById(id);if(b){b.innerHTML='Waiting';b.style='';}});
+            if(window.editor){for(let i=0;i<window.editor.lineCount();i++){window.editor.removeLineClass(i,"background","cm-error-line");window.editor.removeLineClass(i,"background","cm-warning-line");}}
             try{
-                const res=await fetch('/api/v1/pipeline/process',{
-                    method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})
-                });
+                const res=await fetch('/api/v1/pipeline/process',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({code})});
                 const data=await res.json();
-
-                // Stage 1: Exp
-                bar.innerHTML = '● Executing: Macro Expansion';
-                await processStage('stage-exp', 'badge-exp', 'arr-1', data, () => {
-                    const el = document.getElementById('expanded');
-                    if(data.expandedCode) {
-                        const lines = data.expandedCode.split('\n').filter(l=>l.trim());
-                        const hlLines = prepareLines(lines, 'exp');
-                        el.innerHTML = hlLines.map((l,i) => `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="line-text">${l}</span></div>`).join('');
-                    } else el.innerHTML = '<span class="empty">No output</span>';
-                });
-
-                // Stage 2: IR
-                bar.innerHTML = '● Executing: IR Generation';
-                await processStage('stage-ir', 'badge-ir', 'arr-2', data, () => {
-                    if(data.irCode && data.irCode.length > 0) {
-                        state.ir.code = prepareLines(data.irCode, 'ir');
-                        state.ir.story = prepareStory(data.irCode, 'ir');
-                        setView('ir', 'code');
-                    } else document.getElementById('ir-body').innerHTML = '<span class="empty">No IR</span>';
-                });
-
-                // Stage 3: ASM
-                bar.innerHTML = '● Executing: Assembly Translation';
-                await processStage('stage-asm', 'badge-asm', 'arr-3', data, () => {
-                    if(data.assemblyCode && data.assemblyCode.length > 0) {
-                        state.asm.code = prepareLines(data.assemblyCode, 'asm');
-                        state.asm.story = prepareStory(data.assemblyCode, 'asm');
-                        setView('asm', 'code');
-                    } else document.getElementById('asm-body').innerHTML = '<span class="empty">No ASM</span>';
-                });
-
-                // Stage 4: Tables
-                bar.innerHTML = '● Executing: Table Generation';
-                await processStage('stage-tables', null, 'arr-4', data, () => {
-                    const sym=document.getElementById('sym');
-                    if(data.symbolTable&&Object.keys(data.symbolTable).length>0){
-                        sym.innerHTML='<table class="data-table"><thead><tr><th>Variable</th><th>Value</th><th>Type</th></tr></thead><tbody>'+
-                            Object.entries(data.symbolTable).map(([k,v],i)=>{
-                                const tip = v === null ? `Computed dynamically during execution` : `Stored statically as constant ${v} before execution`;
-                                return `<tr class="tip" data-info="${tip}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td>${k}</td><td>${v===null?'<span style="color:var(--text-dim)">runtime</span>':'<span class="syn-val">'+v+'</span>'}</td><td style="color:var(--text-dim)">${v===null?'Computed':'Constant'}</td></tr>`;
-                            }).join('')+'</tbody></table>';
-                    }else sym.innerHTML='<span class="empty">No symbols</span>';
-                    
-                    const mnt=document.getElementById('mnt');
-                    if(data.mnt&&Object.keys(data.mnt).length>0){
-                        mnt.innerHTML='<table class="data-table"><thead><tr><th>Macro Name</th><th># Args</th><th>MDT Index</th><th>Parameters</th></tr></thead><tbody>'+
-                            Object.entries(data.mnt).map(([n,d],i)=>`<tr class="tip" data-info="Macro \'${n}\' starts at MDT line ${d.start}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.formalParams.length}</td><td>${d.start}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';
-                    }else mnt.innerHTML='<span class="empty">No macros</span>';
-                    
-                    const mdt=document.getElementById('mdt');
-                    if(data.mdt&&data.mdt.length>0){
-                        mdt.innerHTML=data.mdt.map((l,i)=>`<div class="code-line tip" data-info="Stored macro instruction template" style="animation-delay:${i*0.05}s"><span class="line-no">${i}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');
-                    }else mdt.innerHTML='<span class="empty">Empty</span>';
-                });
-
-                // Stage 4.5: Timeline
-                bar.innerHTML = '● Executing: Building Timeline';
-                await processStage('stage-timeline', 'badge-timeline', 'arr-5', data, () => {
-                    const el = document.getElementById('timeline-body');
-                    if(data.executionTimeline && data.executionTimeline.length > 0) {
-                        el.innerHTML = data.executionTimeline.map((l, i) => {
-                            let formatted = esc(l)
-                                .replace(/(→)/g, '<span class="syn-arrow">$1</span>')
-                                .replace(/\b([A-Z_][A-Z0-9_]*)\b/g, '<span class="syn-var">$1</span>')
-                                .replace(/\b(\d+)\b/g, '<span class="syn-val">$1</span>');
-                            return `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="story-text">${formatted}</span></div>`;
-                        }).join('');
-                    } else {
-                        el.innerHTML = '<span class="empty">No timeline generated</span>';
-                    }
-                });
-
-                // Stage 5: Diagnostics
-                bar.innerHTML = '● Executing: Diagnostics';
-                await processStage('stage-diag', null, null, data, () => {
+                if(data.assemblerMode){await runAssemblerMode(data,bar);}else{await runCompilerMode(data,bar);}
+                bar.innerHTML='● Diagnostics';
+                await processStage('stage-diag',null,null,data,()=>{
                     const el=document.getElementById('errors');
                     if(data.errors&&data.errors.length>0){
                         el.innerHTML=data.errors.map((e,i)=>`<div class="diag-line ${e.type==='WARNING'?'warn':'err'}" style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s">Line ${e.line} · ${e.type} — ${e.message}</div>`).join('');
-                        
-                        // Add highlights to editor
-                        if (window.editor) {
-                            data.errors.forEach(e => {
-                                if (e.line && e.line > 0) {
-                                    const className = e.type === 'WARNING' ? 'cm-warning-line' : 'cm-error-line';
-                                    window.editor.addLineClass(e.line - 1, "background", className);
-                                }
-                            });
-                        }
+                        if(window.editor){data.errors.forEach(e=>{if(e.line&&e.line>0){window.editor.addLineClass(e.line-1,"background",e.type==='WARNING'?'cm-warning-line':'cm-error-line');}});}
                     }else el.innerHTML='<span style="color:var(--ok);animation:fadeIn 0.5s ease forwards;opacity:0">Clean — no errors</span>';
                 });
-
-                // Final Status Update
-                fetchHistory(); // refresh history
+                fetchHistory();
                 const hard=data.errors?data.errors.filter(e=>e.type!=='WARNING').length:0;
                 const warns=data.errors?data.errors.filter(e=>e.type==='WARNING').length:0;
                 if(hard>0){bar.textContent=`Pipeline halted with ${hard} error(s)`;bar.className='fail';dot.style.background='var(--err)'}
                 else if(warns>0){bar.textContent=`✔ Completed with ${warns} warning(s)`;bar.className='warn';dot.style.background='var(--warn)'}
                 else{bar.textContent='✔ Completed. All stages green.';bar.className='ok';dot.style.background='var(--ok)'}
+            }catch(e){bar.textContent='System Error: '+e.message;bar.className='fail';dot.style.background='var(--err)'}
+            finally{setBtnState(false,'Execute Pipeline');}
+        }
 
-            }catch(e){
-                bar.textContent='System Error: '+e.message;bar.className='fail';dot.style.background='var(--err)'
-            }finally{
-                setBtnState(false, 'Execute Pipeline');
-            }
+        async function runAssemblerMode(data,bar){
+            document.querySelector('.brand p').textContent='Pass-1 → IC → Pass-2 → Machine Code';
+            document.getElementById('timeline-title').textContent='05 — Assembler Timeline';
+            bar.innerHTML='● Pass-1: Generating Intermediate Code';
+            await processStage('stage-ir','badge-ir','arr-2',data,()=>{
+                const el=document.getElementById('ir-body');
+                document.querySelector('#stage-ir .stage-title').textContent='01 — Pass-1: Intermediate Code';
+                const toggle=document.querySelector('#stage-ir .view-toggle');if(toggle)toggle.style.display='none';
+                if(data.intermediateCode&&data.intermediateCode.length>0){
+                    el.innerHTML='<table class="data-table"><thead><tr><th>LC</th><th>Intermediate Code</th></tr></thead><tbody>'+
+                        data.intermediateCode.map((entry,i)=>{
+                            const lcStr=entry.lc!==''&&entry.lc!==null?String(entry.lc):'—';
+                            return `<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.04}s"><td>${lcStr}</td><td><span class="syn-kw">${esc(entry.ic)}</span></td></tr>`;
+                        }).join('')+'</tbody></table>';
+                }else el.innerHTML='<span class="empty">No IC generated</span>';
+            });
+            bar.innerHTML='● Building Tables: SYMTAB, LITTAB, POOLTAB';
+            await processStage('stage-asm-tables',null,'arr-4',data,()=>{
+                const symEl=document.getElementById('asm-sym');
+                if(data.asmSymtab&&data.asmSymtab.length>0){
+                    symEl.innerHTML='<table class="data-table"><thead><tr><th>Index</th><th>Symbol</th><th>Address</th></tr></thead><tbody>'+
+                        data.asmSymtab.map((s,i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.08}s"><td>${s.index}</td><td><span class="syn-var">${esc(String(s.name))}</span></td><td><span class="syn-val">${s.address}</span></td></tr>`).join('')+'</tbody></table>';
+                }else symEl.innerHTML='<span class="empty">No symbols</span>';
+                const litEl=document.getElementById('asm-lit');
+                if(data.littab&&data.littab.length>0){
+                    litEl.innerHTML='<table class="data-table"><thead><tr><th>Index</th><th>Literal</th><th>Address</th></tr></thead><tbody>'+
+                        data.littab.map((l,i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.08}s"><td>${l.index}</td><td><span class="syn-val">${esc(String(l.value))}</span></td><td><span class="syn-val">${l.address}</span></td></tr>`).join('')+'</tbody></table>';
+                }else litEl.innerHTML='<span class="empty">No literals</span>';
+                const poolEl=document.getElementById('asm-pool');
+                if(data.pooltab&&data.pooltab.length>0){
+                    poolEl.innerHTML='<table class="data-table"><thead><tr><th>Pool #</th><th>LITTAB Start Index</th></tr></thead><tbody>'+
+                        data.pooltab.map((p,i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.08}s"><td>${i+1}</td><td><span class="syn-val">${p}</span></td></tr>`).join('')+'</tbody></table>';
+                }else poolEl.innerHTML='<span class="empty">No pools</span>';
+            });
+            bar.innerHTML='● Pass-2: Generating Machine Code';
+            await processStage('stage-mc','badge-mc','arr-mc',data,()=>{
+                const el=document.getElementById('mc-body');
+                if(data.machineCode&&data.machineCode.length>0){
+                    el.innerHTML='<table class="data-table"><thead><tr><th>Address</th><th>Machine Code</th></tr></thead><tbody>'+
+                        data.machineCode.map((mc,i)=>{const parts=mc.split(' ');const addr=parts[0];const rest=parts.slice(1).join(' ');
+                        return `<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.04}s"><td><span class="syn-val">${addr}</span></td><td><span class="syn-kw">${esc(rest)}</span></td></tr>`;}).join('')+'</tbody></table>';
+                }else el.innerHTML='<span class="empty">No machine code</span>';
+            });
+            bar.innerHTML='● Building Assembler Timeline';
+            await processStage('stage-timeline','badge-timeline','arr-5',data,()=>{
+                const el=document.getElementById('timeline-body');
+                if(data.executionTimeline&&data.executionTimeline.length>0){
+                    el.innerHTML=data.executionTimeline.map((l,i)=>{
+                        let f=esc(l).replace(/(→)/g,'<span class="syn-arrow">$1</span>').replace(/\b([A-Z_][A-Z0-9_]*)\b/g,'<span class="syn-var">$1</span>').replace(/\b(\d+)\b/g,'<span class="syn-val">$1</span>');
+                        return `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="story-text">${f}</span></div>`;
+                    }).join('');
+                }else el.innerHTML='<span class="empty">No timeline</span>';
+            });
+        }
+
+        async function runCompilerMode(data,bar){
+            document.querySelector('.brand p').textContent='Macro → IR → Assembly';
+            document.getElementById('timeline-title').textContent='04 — Execution Timeline';
+            bar.innerHTML='● Executing: Macro Expansion';
+            await processStage('stage-exp','badge-exp','arr-1',data,()=>{
+                const el=document.getElementById('expanded');
+                if(data.expandedCode){const lines=data.expandedCode.split('\n').filter(l=>l.trim());const hlLines=prepareLines(lines,'exp');
+                el.innerHTML=hlLines.map((l,i)=>`<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="line-text">${l}</span></div>`).join('');}else el.innerHTML='<span class="empty">No output</span>';
+            });
+            bar.innerHTML='● Executing: IR Generation';
+            await processStage('stage-ir','badge-ir','arr-2',data,()=>{
+                document.querySelector('#stage-ir .stage-title').textContent='02 — Intermediate Representation';
+                const toggle=document.querySelector('#stage-ir .view-toggle');if(toggle)toggle.style.display='';
+                if(data.irCode&&data.irCode.length>0){state.ir.code=prepareLines(data.irCode,'ir');state.ir.story=prepareStory(data.irCode,'ir');setView('ir','code');}
+                else document.getElementById('ir-body').innerHTML='<span class="empty">No IR</span>';
+            });
+            bar.innerHTML='● Executing: Assembly Translation';
+            await processStage('stage-asm','badge-asm','arr-3',data,()=>{
+                if(data.assemblyCode&&data.assemblyCode.length>0){state.asm.code=prepareLines(data.assemblyCode,'asm');state.asm.story=prepareStory(data.assemblyCode,'asm');setView('asm','code');}
+                else document.getElementById('asm-body').innerHTML='<span class="empty">No ASM</span>';
+            });
+            bar.innerHTML='● Executing: Table Generation';
+            await processStage('stage-tables',null,'arr-4',data,()=>{
+                const sym=document.getElementById('sym');
+                if(data.symbolTable&&Object.keys(data.symbolTable).length>0){sym.innerHTML='<table class="data-table"><thead><tr><th>Variable</th><th>Value</th><th>Type</th></tr></thead><tbody>'+Object.entries(data.symbolTable).map(([k,v],i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td>${k}</td><td>${v===null?'<span style="color:var(--text-dim)">runtime</span>':'<span class="syn-val">'+v+'</span>'}</td><td style="color:var(--text-dim)">${v===null?'Computed':'Constant'}</td></tr>`).join('')+'</tbody></table>';}else sym.innerHTML='<span class="empty">No symbols</span>';
+                const mntEl=document.getElementById('mnt');
+                if(data.mnt&&Object.keys(data.mnt).length>0){mntEl.innerHTML='<table class="data-table"><thead><tr><th>Macro Name</th><th># Args</th><th>MDT Index</th><th>Parameters</th></tr></thead><tbody>'+Object.entries(data.mnt).map(([n,d],i)=>`<tr style="animation:fadeIn 0.3s ease forwards;opacity:0;animation-delay:${i*0.1}s"><td><span class="syn-kw">${n}</span></td><td>${d.formalParams.length}</td><td>${d.start}</td><td style="color:var(--text-dim)">${d.formalParams.join(', ')}</td></tr>`).join('')+'</tbody></table>';}else mntEl.innerHTML='<span class="empty">No macros</span>';
+                const mdtEl=document.getElementById('mdt');
+                if(data.mdt&&data.mdt.length>0){mdtEl.innerHTML=data.mdt.map((l,i)=>`<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i}</span><span class="line-text">${tokenize(l,'exp')}</span></div>`).join('');}else mdtEl.innerHTML='<span class="empty">Empty</span>';
+            });
+            bar.innerHTML='● Executing: Building Timeline';
+            await processStage('stage-timeline','badge-timeline','arr-5',data,()=>{
+                const el=document.getElementById('timeline-body');
+                if(data.executionTimeline&&data.executionTimeline.length>0){
+                    el.innerHTML=data.executionTimeline.map((l,i)=>{let f=esc(l).replace(/(→)/g,'<span class="syn-arrow">$1</span>').replace(/\b([A-Z_][A-Z0-9_]*)\b/g,'<span class="syn-var">$1</span>').replace(/\b(\d+)\b/g,'<span class="syn-val">$1</span>');return `<div class="code-line" style="animation-delay:${i*0.05}s"><span class="line-no">${i+1}</span><span class="story-text">${f}</span></div>`;}).join('');
+                }else el.innerHTML='<span class="empty">No timeline</span>';
+            });
         }
     </script>
 </body>

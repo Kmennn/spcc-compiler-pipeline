@@ -22,6 +22,14 @@ public class PipelineResponse {
     
     private List<String> executionTimeline = new ArrayList<>();
 
+    // === Assembler Mode Fields ===
+    private boolean assemblerMode = false;
+    private List<Map<String, Object>> intermediateCode = new ArrayList<>();    // IC lines with LC
+    private List<Map<String, Object>> asmSymtab = new ArrayList<>();           // SYMTAB entries
+    private List<Map<String, Object>> littab = new ArrayList<>();              // LITTAB entries
+    private List<Integer> pooltab = new ArrayList<>();                         // POOLTAB entries
+    private List<String> machineCode = new ArrayList<>();                      // Final machine code
+
     // Getters
     public List<String> getExecutionTimeline() {
         return executionTimeline;
@@ -56,6 +64,30 @@ public class PipelineResponse {
 
     public List<Error> getErrors() {
         return errors;
+    }
+
+    public boolean isAssemblerMode() {
+        return assemblerMode;
+    }
+
+    public List<Map<String, Object>> getIntermediateCode() {
+        return intermediateCode;
+    }
+
+    public List<Map<String, Object>> getAsmSymtab() {
+        return asmSymtab;
+    }
+
+    public List<Map<String, Object>> getLittab() {
+        return littab;
+    }
+
+    public List<Integer> getPooltab() {
+        return pooltab;
+    }
+
+    public List<String> getMachineCode() {
+        return machineCode;
     }
 
     // Setters
@@ -93,5 +125,29 @@ public class PipelineResponse {
 
     public void setExecutionTimeline(List<String> executionTimeline) {
         this.executionTimeline = executionTimeline;
+    }
+
+    public void setAssemblerMode(boolean assemblerMode) {
+        this.assemblerMode = assemblerMode;
+    }
+
+    public void setIntermediateCode(List<Map<String, Object>> intermediateCode) {
+        this.intermediateCode = intermediateCode;
+    }
+
+    public void setAsmSymtab(List<Map<String, Object>> asmSymtab) {
+        this.asmSymtab = asmSymtab;
+    }
+
+    public void setLittab(List<Map<String, Object>> littab) {
+        this.littab = littab;
+    }
+
+    public void setPooltab(List<Integer> pooltab) {
+        this.pooltab = pooltab;
+    }
+
+    public void setMachineCode(List<String> machineCode) {
+        this.machineCode = machineCode;
     }
 }

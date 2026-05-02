@@ -4,6 +4,7 @@ import com.example.pipeline.model.Error;
 import com.example.pipeline.model.MacroDescriptor;
 import com.example.pipeline.model.PipelineResponse;
 import com.example.pipeline.model.ProgramRun;
+import com.example.pipeline.processor.AssemblerEngine;
 import com.example.pipeline.processor.MacroProcessor;
 import com.example.pipeline.processor.MiniAssembler;
 import com.example.pipeline.processor.MiniCompiler;
@@ -27,6 +28,81 @@ public class PipelineService {
     }
 
     public PipelineResponse execute(String code) {
+        // Route to assembler engine if assembler program detected
+        if (AssemblerEngine.isAssemblerProgram(code)) {
+            return executeAssemblerPipeline(code);
+        }
+        return executeCompilerPipeline(code);
+    }
+
+    // ===================== ASSEMBLER PIPELINE =====================
+
+    private PipelineResponse executeAssemblerPipeline(String code) {
+        PipelineResponse response = new PipelineResponse();
+        response.setOriginalCode(code);
+        response.setAssemblerMode(true);
+
+        List<Error> errors = new ArrayList<>();
+
+        // Run two-pass assembler
+        AssemblerEngine engine = new AssemblerEngine();
+        AssemblerEngine.AssemblerResult result = engine.assemble(code, errors);
+
+        // Map IC lines to response format
+        List<Map<String, Object>> icList = new ArrayList<>();
+        for (AssemblerEngine.ICLine icLine : result.intermediateCode) {
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("lc", icLine.lc >= 0 ? icLine.lc : "");
+            entry.put("ic", icLine.ic);
+            icList.add(entry);
+        }
+        response.setIntermediateCode(icList);
+
+        // Map SYMTAB to response format
+        List<Map<String, Object>> symList = new ArrayList<>();
+        for (AssemblerEngine.Symbol sym : result.symtab) {
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("index", sym.index);
+            entry.put("name", sym.name);
+            entry.put("address", sym.address >= 0 ? sym.address : "unresolved");
+            symList.add(entry);
+        }
+        response.setAsmSymtab(symList);
+
+        // Map LITTAB to response format
+        List<Map<String, Object>> litList = new ArrayList<>();
+        for (AssemblerEngine.Literal lit : result.littab) {
+            Map<String, Object> entry = new HashMap<>();
+            entry.put("index", lit.index);
+            entry.put("value", "=" + lit.value);
+            entry.put("address", lit.address >= 0 ? lit.address : "unassigned");
+            litList.add(entry);
+        }
+        response.setLittab(litList);
+
+        // POOLTAB
+        response.setPooltab(result.pooltab);
+
+        // Machine Code
+        response.setMachineCode(result.machineCode);
+
+        // Timeline
+        response.setExecutionTimeline(result.timeline);
+
+        // Set expanded code to original (no macro expansion for assembler programs)
+        response.setExpandedCode(code);
+
+        response.setErrors(errors);
+
+        // Persist run to database
+        saveRun(code, response, errors);
+
+        return response;
+    }
+
+    // ===================== COMPILER PIPELINE (EXISTING) =====================
+
+    private PipelineResponse executeCompilerPipeline(String code) {
         PipelineResponse response = new PipelineResponse();
         response.setOriginalCode(code);
 

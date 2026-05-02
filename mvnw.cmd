@@ -16,7 +16,14 @@ echo Java not found in PATH
 goto error
 
 :init
-set MAVEN_CMD_LINE_ARGS=%*
+@REM Collect all command line arguments
+set MAVEN_CMD_LINE_ARGS=
+:collectArgs
+if "%~1"=="" goto doneCollecting
+set MAVEN_CMD_LINE_ARGS=%MAVEN_CMD_LINE_ARGS% %1
+shift
+goto collectArgs
+:doneCollecting
 
 @REM Download Maven if needed
 for /f "usebackq tokens=1,2 delims==" %%a in (%WRAPPER_PROPERTIES%) do (
