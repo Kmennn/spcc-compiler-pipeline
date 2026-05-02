@@ -287,7 +287,7 @@ public class AssemblerEngine {
                         String operand = tokens[2].replace(",", "").trim();
 
                         if (COND.containsKey(condStr)) {
-                            ic.append(" (CC,").append(COND.get(condStr)).append(")");
+                            ic.append(String.format(" (CC,%02d)", COND.get(condStr)));
                         } else {
                             errors.add(new Error(lineNo, "Unknown condition code: " + condStr, "ASSEMBLER_ERROR"));
                             continue;
@@ -319,7 +319,7 @@ public class AssemblerEngine {
                         String operand = tokens[2].replace(",", "").trim().toUpperCase();
 
                         if (REG.containsKey(regStr)) {
-                            ic.append(" (RG,").append(REG.get(regStr)).append(")");
+                            ic.append(String.format(" (RG,%02d)", REG.get(regStr)));
                         } else {
                             errors.add(new Error(lineNo, "Unknown register: " + regStr, "ASSEMBLER_ERROR"));
                             continue;
@@ -327,7 +327,7 @@ public class AssemblerEngine {
 
                         // Check if second operand is also a register
                         if (REG.containsKey(operand)) {
-                            ic.append(" (RG,").append(REG.get(operand)).append(")");
+                            ic.append(String.format(" (RG,%02d)", REG.get(operand)));
                         } else {
                             ic.append(" ").append(resolveOperand(tokens[2].replace(",", "").trim(), result, errors, lineNo));
                         }
@@ -339,7 +339,7 @@ public class AssemblerEngine {
                         // Some instructions may have only register (edge case)
                         String regStr = tokens[1].replace(",", "").toUpperCase();
                         if (REG.containsKey(regStr)) {
-                            ic.append(" (RG,").append(REG.get(regStr)).append(")");
+                            ic.append(String.format(" (RG,%02d)", REG.get(regStr)));
                         }
                         result.intermediateCode.add(new ICLine(LC, ic.toString()));
                         result.timeline.add(LC + ": " + mnemonic + " " + regStr);
@@ -384,7 +384,7 @@ public class AssemblerEngine {
             int dlType = 0;
 
             // Parse IC tokens: (TYPE,VALUE)
-            Pattern pattern = Pattern.compile("\\(([A-Z]{2}),(\\d+)\\)");
+            Pattern pattern = Pattern.compile("\\(([A-Z]{1,2}),(\\d+)\\)");
             Matcher matcher = pattern.matcher(ic);
 
             while (matcher.find()) {
