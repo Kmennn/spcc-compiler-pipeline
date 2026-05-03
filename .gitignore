@@ -34,5 +34,13 @@ compiler.db
 .DS_Store
 Thumbs.db
 
+# Compiled output
+out/
+
+# Temp scripts
+run_test.bat
+push.ps1
+GitHelper.java
+
 # Misc
 HELP.md

@@ -152,7 +152,7 @@ public class AssemblerEngine {
 
             // --- Extract label ---
             // Format 1: "LABEL: instruction" (colon-separated)
-            if (rawLine.contains(":") && !rawLine.contains("='")) {
+            if (rawLine.contains(":") && !rawLine.contains("='") && !rawLine.contains("=\"")) {
                 int colonIdx = rawLine.indexOf(':');
                 label = rawLine.substring(0, colonIdx).trim();
                 instruction = rawLine.substring(colonIdx + 1).trim();
@@ -263,7 +263,7 @@ public class AssemblerEngine {
                 }
                 String val = "0";
                 if (tokens.length >= 2) {
-                    val = tokens[1].replace("'", "");
+                    val = tokens[1].replaceAll("['\"]", "");
                 }
                 result.intermediateCode.add(new ICLine(LC, "(DL,02) (C," + val + ")"));
                 result.timeline.add("DC: " + (label != null ? label : "?") + " = " + val + " at address " + LC);
@@ -357,6 +357,7 @@ public class AssemblerEngine {
                 }
             }
         }
+        processLiterals(result, LC);
 
         result.timeline.add("Pass-1 completed. SYMTAB has " + result.symtab.size() + " entries, LITTAB has " + result.littab.size() + " entries.");
     }
@@ -384,7 +385,7 @@ public class AssemblerEngine {
             int dlType = 0;
 
             // Parse IC tokens: (TYPE,VALUE)
-            Pattern pattern = Pattern.compile("\\(([A-Z]{1,2}),(\\d+)\\)");
+            Pattern pattern = Pattern.compile("\\(([A-Z]{1,2}),\\s*(\\d+)\\)");
             Matcher matcher = pattern.matcher(ic);
 
             while (matcher.find()) {
@@ -400,25 +401,34 @@ public class AssemblerEngine {
                         dlType = value;
                         break;
                     case "RG":
+                        if (reg.equals("00")) {
+                            reg = String.format("%02d", value);
+                        } else {
+                            // If reg is already set, this is the second register operand
+                            addr = String.format("%03d", value);
+                        }
+                        break;
                     case "CC":
                         reg = String.format("%02d", value);
                         break;
                     case "S":
-                        // Resolve from SYMTAB
+                        // Resolve from SYMTAB (Assuming 0-based index in IC)
                         if (value >= 0 && value < result.symtab.size()) {
-                            addr = String.format("%03d", result.symtab.get(value).address);
+                            int symbolAddr = result.symtab.get(value).address;
+                            addr = symbolAddr >= 0 ? String.format("%03d", symbolAddr) : "000";
                         } else {
                             errors.add(new Error(0, "Invalid SYMTAB index: " + value, "ASSEMBLER_ERROR"));
-                            addr = "???";
+                            addr = "000";
                         }
                         break;
                     case "L":
-                        // Resolve from LITTAB
+                        // Resolve from LITTAB (Assuming 0-based index in IC)
                         if (value >= 0 && value < result.littab.size()) {
-                            addr = String.format("%03d", result.littab.get(value).address);
+                            int litAddr = result.littab.get(value).address;
+                            addr = litAddr >= 0 ? String.format("%03d", litAddr) : "000";
                         } else {
                             errors.add(new Error(0, "Invalid LITTAB index: " + value, "ASSEMBLER_ERROR"));
-                            addr = "???";
+                            addr = "000";
                         }
                         break;
                     case "C":
@@ -431,7 +441,9 @@ public class AssemblerEngine {
             // Build machine code line
             if (isDL) {
                 if (dlType == 1) { // DS
-                    mc.append("00 00 000");
+                    // DS usually doesn't produce explicit machine code with 00 00 000, but we can omit or output it.
+                    // Let's omit it to be safe, as it just reserves space.
+                    continue;
                 } else if (dlType == 2) { // DC
                     mc.append("00 00 ").append(addr);
                 }
@@ -471,9 +483,9 @@ public class AssemblerEngine {
      * Literal (=5) → (L,index), Symbol → (S,index)
      */
     private String resolveOperand(String operand, AssemblerResult result, List<Error> errors, int lineNo) {
-        if (operand.startsWith("=")) {
+        if (operand.startsWith("=") || operand.startsWith("'") || operand.startsWith("\"")) {
             // Literal
-            String litValue = operand.substring(1).replace("'", "");
+            String litValue = operand.replaceAll("['\"=]", "");
             int idx = findLiteralIndex(result.littab, litValue);
             if (idx < 0) {
                 idx = result.littab.size();
