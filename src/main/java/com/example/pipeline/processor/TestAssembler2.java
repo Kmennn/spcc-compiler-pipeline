@@ -32,7 +32,7 @@ public class TestAssembler2 {
         }
         System.out.println("\n--- ERRORS ---");
         for (Error e : errors) {
-            System.out.println(e.line + ": " + e.message);
+            System.out.println(e.getLine() + ": " + e.getMessage());
         }
     }
 }

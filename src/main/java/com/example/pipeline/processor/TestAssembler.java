@@ -1,3 +1,5 @@
+package com.example.pipeline.processor;
+
 import com.example.pipeline.processor.AssemblerEngine;
 import com.example.pipeline.model.Error;
 import java.util.ArrayList;
