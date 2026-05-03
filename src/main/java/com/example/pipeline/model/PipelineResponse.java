@@ -16,7 +16,7 @@ public class PipelineResponse {
     private Map<String, MacroDescriptor> mnt = new HashMap<>();
     private List<String> mdt = new ArrayList<>();
 
-    private Map<String, Integer> symbolTable = new HashMap<>();
+    private Map<String, Integer> symbolTable = new java.util.LinkedHashMap<>();
 
     private List<Error> errors = new ArrayList<>();
     

@@ -126,7 +126,7 @@ public class PipelineService {
         }
 
         // === STAGE 2: Compilation (IR Generation) ===
-        Map<String, Integer> symbolTable = new HashMap<>();
+        Map<String, Integer> symbolTable = new java.util.LinkedHashMap<>();
         MiniCompiler compiler = new MiniCompiler();
         List<String> irCode = compiler.compile(expandedCode, errors, symbolTable);
 
