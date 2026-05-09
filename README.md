@@ -83,4 +83,4 @@ OUT X
 ---
 
 ## 📜 License
-Academic use only. Designed for SPCC curriculum demonstration.
+Academic use only. Designed for SPCC curriculum demonstration. Virendra.. 😎
